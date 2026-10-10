@@ -1,0 +1,151 @@
+
+# ============================================================
+# AarogyaLink — Full-stack project
+# Python/FastAPI + PostgreSQL + Docker + Frontend
+# ============================================================
+
+# --- Secrets and environment files ---
+.env
+.env.*
+!.env.example
+!.env.*.example
+!.env.template
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.*.example
+!**/.env.template
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+**/secrets/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+**/.venv/
+**/venv/
+**/env/
+
+# Python packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+wheels/
+
+# Python test and tooling caches
+.pytest_cache/
+.mypy_cache/
+.pytype/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+nosetests.xml
+.ipynb_checkpoints/
+
+# --- Frontend: Node.js, React, Vite, Next.js ---
+node_modules/
+**/node_modules/
+.npm/
+.pnpm-store/
+.yarn/cache/
+.yarn/unplugged/
+.yarn/build-state.yml
+.yarn/install-state.gz
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Frontend builds and framework caches
+dist/
+build/
+.next/
+out/
+.nuxt/
+.svelte-kit/
+.angular/
+.parcel-cache/
+.turbo/
+.vercel/
+.netlify/
+coverage/
+
+# Frontend local environment files
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# --- PostgreSQL and local database data ---
+pgdata/
+postgres-data/
+database-data/
+.db-data/
+*.sqlite
+*.sqlite3
+*.db
+*.dump
+*.backup
+*.bak
+*.sql.gz
+*.dump.gz
+
+# --- Runtime files and logs ---
+*.pid
+*.pid.lock
+*.seed
+*.log
+logs/
+**/logs/
+tmp/
+temp/
+
+# --- User uploads and generated media ---
+uploads/*
+!uploads/.gitkeep
+media/*
+!media/.gitkeep
+
+# --- Operating system ---
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# --- Editors and IDEs ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# --- Testing artifacts ---
+playwright-report/
+test-results/
+
+# --- Generated certificates and keys ---
+certs/*.crt
+certs/*.pem
+certs/*.key
