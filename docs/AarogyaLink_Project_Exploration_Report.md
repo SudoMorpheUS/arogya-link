@@ -12,7 +12,7 @@
 
 ### Current Implementation Status
 - **Backend (`backend/`)**: Built with **FastAPI** and **Python 3.13**, managed via **uv**. Contains fully defined SQLAlchemy 2.0 ORM models and Pydantic v2 schemas for all 9 entities matching the relational database schema. A debug SQL runner exists at `POST /debug/sql`, but domain API routers (auth, patients, visits, consent, audit) are not yet implemented.
-- **Frontend (`frontend/arogya-link/`)**: A newly initialized **React 19 + TypeScript + Vite 8** single-page application. Currently contains the default Vite counter template. Routing (`react-router-dom`), component library, CSS framework (e.g., Tailwind CSS), and state/query management (`@tanstack/react-query`) are not yet installed.
+- **Frontend (`frontend/`)**: A **Next.js 16 (App Router) + React 19 + TypeScript** application running on Node.js. It serves the patient, doctor and administrator portals from the Assignment 2 sample data (in-memory store, Node route handlers under `/api`) and uses a 3D tower loader as its visual motif.
 - **Database (`database/`)**: PostgreSQL schema migration (`init_migration_001.sql`) defines 9 tables in BCNF. A comprehensive synthetic dataset of ~50,000 SQL lines (`initial_mock_data_load_fixed.sql`) is ready for testing.
 - **Docker Orchestration (`docker-compose.yml`)**: Coordinates 3 services (`db`, `backend`, `frontend`). Note that `backend/Dockerfile` and `frontend/Dockerfile` are currently empty 0-byte placeholders that require definition.
 - **Documentation (`docs/`)**: Extensive design specifications, including database queries, stored procedures, triggers, views, full-stack implementation plan, and role-based frontend architecture.
@@ -69,32 +69,17 @@ d:\Projects\aarogya-link\
 │   ├── AarogyaLink_Frontend_Only_Implementation_Plan.md # Role-based frontend architecture (4 roles)
 │   └── WATTUPDA2.docx                               # Source assignment document
 │
-└── frontend\                                        # Frontend web application
-    ├── Dockerfile                                   # Placeholder container definition (0 bytes)
-    ├── package.json                                 # Top-level workspace runner wrapper
-    ├── pnpm-lock.yaml                               # Workspace lockfile
-    └── arogya-link\                                 # Vite + React single-page application
-        ├── eslint.config.js                         # ESLint flat configuration (TypeScript + React hooks)
-        ├── index.html                               # HTML page shell
-        ├── package.json                             # React 19, TypeScript ~6.0, Vite 8.3
-        ├── pnpm-lock.yaml                           # Locked node dependencies
-        ├── README.md                                # Standard Vite template instructions
-        ├── tsconfig.app.json                        # Frontend TypeScript compiler options
-        ├── tsconfig.json                            # Project references configuration
-        ├── tsconfig.node.json                       # Vite config TypeScript compiler options
-        ├── vite.config.ts                           # Vite configuration with @vitejs/plugin-react
-        ├── public\
-        │   ├── favicon.svg                          # Site favicon
-        │   └── icons.svg                            # SVG sprite sheet
-        └── src\
-            ├── App.css                              # Starter styling for Vite template
-            ├── App.tsx                              # Starter counter component
-            ├── index.css                            # Global CSS variables and typography
-            ├── main.tsx                             # Application DOM mounting entrypoint
-            └── assets\
-                ├── hero.png                         # Vite starter illustration
-                ├── react.svg                        # React logo
-                └── vite.svg                         # Vite logo
+└── frontend\                                        # Next.js application (Node.js)
+    ├── Dockerfile                                   # Multi-stage Node 22 build (standalone server)
+    ├── next.config.ts                               # Next.js configuration
+    ├── package.json                                 # React 19, Next.js 16, TypeScript 5
+    ├── package-lock.json                            # Locked node dependencies
+    ├── public\
+    │   └── robots.txt
+    └── src\
+        ├── app\                                     # App Router: pages, layouts, loading UI, /api routes
+        ├── components\                              # TowerLoader, Timeline, forms, navigation
+        └── lib\                                     # Types, sample data, in-memory store, session, server actions
 ```
 
 ---
@@ -102,7 +87,7 @@ d:\Projects\aarogya-link\
 ## 3. Configuration Analysis
 
 ### 3.1 Docker Compose (`docker-compose.yml`)
-- **`frontend` service**: Builds from `./frontend` using `./frontend/Dockerfile`, exposes port `5173:5173`, mounts `./frontend:/app` (with an anonymous volume for `/app/node_modules`), sets `VITE_API_BASE_URL: http://localhost:8000`, depends on `backend`.
+- **`frontend` service**: Builds from `./frontend` using the multi-stage `./frontend/Dockerfile` (Node 22, Next.js standalone output) and exposes port `3000:3000`.
 - **`backend` service**: Builds from `./backend` using `./backend/Dockerfile`, exposes port `8000:8000`, mounts `./backend:/app`, sets `DATABASE_URL: postgresql+psycopg://aarogya:aarogya_dev_password@db:5432/aarogya_db` and `PYTHONUNBUFFERED: "1"`, depends on healthy `db`.
 - **`db` service**: Runs `postgres:17`, creates database `aarogya_db` with user `aarogya`, maps port `5432:5432`, persists storage on volume `postgres_data`, automatically runs `./database/init_migration_001.sql` on startup via `/docker-entrypoint-initdb.d/`.
 
@@ -119,14 +104,13 @@ d:\Projects\aarogya-link\
   - `DATABASE_URL`: `postgresql+psycopg://aarogya:aarogya_dev_password@localhost:5432/aarogya_db`.
 
 ### 3.3 Frontend Configuration
-- **Location**: Nested inside `frontend/arogya-link/`.
+- **Location**: `frontend/`.
 - **Dependencies**: React 19 (`^19.2.8`), React DOM (`^19.2.8`).
-- **Tooling**: Vite 8 (`^8.3.0`), TypeScript (`~6.0.2`), `@vitejs/plugin-react` (`^6.1.1`).
+- **Tooling**: Next.js 16, TypeScript 5, ESLint 9 (`eslint-config-next`).
 - **Missing Dependencies**:
-  - Routing: `react-router-dom`
-  - Data fetching: `@tanstack/react-query`
-  - Styling / UI: `tailwindcss`, `@tailwindcss/vite` (or CSS modules), `clsx`, `tailwind-merge`
-  - Icons: `lucide-react`
+  - Routing: built into Next.js (App Router)
+  - Data: Node route handlers and server actions over the in-memory sample store (swap for the FastAPI/PostgreSQL backend later)
+  - Styling: plain CSS with CSS variables and one CSS module (no framework)
 
 ---
 
@@ -251,7 +235,7 @@ async def read_root():
 
 ### 6.1 Current Files
 - `frontend/arogya-link/src/main.tsx`: Standard React root rendering `<App />` inside `StrictMode`.
-- `frontend/arogya-link/src/App.tsx`: Default Vite starter template with counter state and external Vite/React documentation links.
+- `frontend/src/app/`: App Router pages (landing, dashboard, patients, consents, audit, hospitals, duplicates, visits) and `/api` route handlers; `frontend/src/lib/` holds the sample data and in-memory store.
 - `frontend/arogya-link/src/index.css` & `App.css`: Basic layout styles, CSS custom properties (`--bg`, `--text`, `--accent`), and typography definitions.
 
 ### 6.2 Target Architecture (from `docs/AarogyaLink_Frontend_Only_Implementation_Plan.md`)
@@ -303,7 +287,7 @@ AarogyaLink Application
 | **Frontend Dependencies** | React 19 only | Router, Query, Icons, Tailwind | Install `react-router-dom`, `@tanstack/react-query`, `lucide-react`, `tailwindcss` |
 | **Frontend App Structure** | Single starter `App.tsx` | Role-based router & layout | Create `routes/`, `layouts/`, `pages/`, `components/`, `api/` |
 | **Backend Dockerfile** | 0 bytes | Working Python container | Write Dockerfile (using `ghcr.io/astral-sh/uv:python3.13-bookworm-slim`) |
-| **Frontend Dockerfile** | 0 bytes | Working Node/Vite container | Write Dockerfile (Node 22 / pnpm dev server or nginx build) |
+| **Frontend Dockerfile** | Multi-stage Node 22 build | Working Node container | Done: Next.js standalone server on port 3000 |
 | **Backend API Endpoints** | Only `GET /` and `POST /debug/sql` | REST API for all resources | Implement routers: `auth`, `dashboard`, `patients`, `visits`, `consents`, `hospitals`, `doctors`, `duplicate_tests`, `audit` |
 | **Auth / User Model** | No user table in schema | Role-based authentication | Implement mock authentication service or add `app_user` table |
 | **Database Objects** | 9 base tables in DDL | Views, functions, triggers | Execute `v_patient_timeline`, `v_duplicate_lab_tests`, `fn_has_consent`, etc. |

@@ -59,7 +59,7 @@ coverage.xml
 nosetests.xml
 .ipynb_checkpoints/
 
-# --- Frontend: Node.js, React, Vite, Next.js ---
+# --- Frontend: Node.js, React, Next.js ---
 node_modules/
 **/node_modules/
 .npm/

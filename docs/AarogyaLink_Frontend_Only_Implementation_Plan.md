@@ -30,7 +30,7 @@ in the frontend repository.
 
 ## 2. Recommended frontend stack
 
--   React + Vite + TypeScript
+-   React + Next.js (App Router, running on Node.js) + TypeScript
 -   React Router for navigation
 -   CSS Modules or a consistent global CSS system
 -   TanStack Query (recommended) or a consistent custom hook pattern for
@@ -103,7 +103,7 @@ frontend/
 │   └── styles/
 ├── .env.example
 ├── package.json
-└── vite.config.ts
+└── next.config.ts
 ```
 
 This is a suggested organization, not a requirement to create every file
@@ -443,7 +443,7 @@ frontend/
 │   └── styles/
 ├── .env.example
 ├── package.json
-└── vite.config.ts
+└── next.config.ts
 ```
 
 Treat this as a target structure, not a requirement to create every file
@@ -499,14 +499,14 @@ permitted roles.
 
 ## 10. API client and environment setup
 
--   Put the API base URL in one variable such as `VITE_API_BASE_URL`.
+-   Put the API base URL in one variable such as `API_BASE_URL` (server-side only).
 -   Create one shared API client for credentials, JSON parsing, and
     normalized errors.
 -   Keep TypeScript API types in `src/types`.
 -   Use one consistent loading/caching/refetch pattern.
 -   Clear protected cached data on logout or session expiry.
 -   Refresh affected views after a successful mutation.
--   Never place PostgreSQL credentials or backend secrets in `VITE_*`
+-   Never place PostgreSQL credentials or backend secrets in `NEXT_PUBLIC_*`
     variables; they are visible in the browser bundle.
 -   If cookie authentication is used, coordinate credential handling,
     CORS, and CSRF with the backend.

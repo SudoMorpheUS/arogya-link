@@ -6,7 +6,7 @@ PostgreSQL database and demonstrate patient records, visits, clinical
 history, consent-based access, cross-hospital sharing, duplicate-test
 detection, and audit trails.
 
-> **Implementation baseline:** React + Vite frontend, FastAPI (Python,
+> **Implementation baseline:** React + Next.js (Node.js) frontend, FastAPI (Python,
 > managed with `uv`) backend, PostgreSQL database, Docker Compose for
 > local development. Keep the existing database schema and SQL objects
 > as the source of truth; implement APIs that map to them rather than
@@ -130,7 +130,7 @@ layer.
 
 ### Stack
 
--   **Frontend:** React, Vite, TypeScript (recommended), React Router.
+-   **Frontend:** React, Next.js (App Router), TypeScript. Routing is built into Next.js.
 -   **UI and styling:** CSS modules or a consistent global CSS design
     system. Use reusable components rather than styling every page
     independently.
@@ -190,7 +190,7 @@ aarogya-link/
 └── frontend/
     ├── Dockerfile
     ├── package.json
-    ├── vite.config.ts
+    ├── next.config.ts
     └── src/
         ├── main.tsx
         ├── App.tsx
@@ -587,7 +587,7 @@ requirements, not optional polish.
 
 ## 8. Frontend-to-backend integration rules
 
--   Put the API base URL in `VITE_API_BASE_URL`; do not hard-code it in
+-   Put the API base URL in `API_BASE_URL` (server-side env); do not hard-code it in
     each component.
 -   In Docker Compose, the browser normally calls the published host
     address (for example `http://localhost:8000`), not the internal
@@ -599,8 +599,8 @@ requirements, not optional polish.
     for loading, caching, refetching, and invalidating data.
 -   Keep API types in `src/types` and share a documented contract; do
     not duplicate business logic in the frontend.
--   Never put PostgreSQL credentials in Vite environment variables. Any
-    `VITE_*` value is exposed to the browser bundle.
+-   Never put PostgreSQL credentials in `NEXT_PUBLIC_*` environment
+    variables. Any `NEXT_PUBLIC_*` value is exposed to the browser bundle.
 -   Handle expired sessions by redirecting to sign-in and clearing
     cached protected data.
 -   After a consent or visit mutation succeeds, invalidate the relevant
@@ -822,7 +822,7 @@ POSTGRES_DB=aarogya_db
 POSTGRES_USER=aarogya
 POSTGRES_PASSWORD=replace_for_local_development
 DATABASE_URL=postgresql://aarogya:replace_for_local_development@db:5432/aarogya_db
-VITE_API_BASE_URL=http://localhost:8000
+API_BASE_URL=http://localhost:8000
 SESSION_SECRET=replace_with_a_long_random_secret
 ```
 
@@ -836,7 +836,7 @@ Typical local workflow (adjust to the repository's current files):
 docker compose up --build
 ```
 
-Then check: - Frontend: `http://localhost:5173` - API health:
+Then check: - Frontend: `http://localhost:3000` - API health:
 `http://localhost:8000/health` - API documentation:
 `http://localhost:8000/docs`
 
