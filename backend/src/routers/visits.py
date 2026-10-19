@@ -137,3 +137,23 @@ def list_visits(
             "chief_complaint": v.chief_complaint,
         })
     return results
+
+
+@router.delete("/{visit_id}")
+def delete_visit(visit_id: int, db: Session = Depends(get_db)):
+    """Delete a clinical visit encounter and associated records (Delete operation)."""
+    v = db.scalar(select(Visit).where(Visit.visit_id == visit_id))
+    if not v:
+        raise HTTPException(status_code=404, detail="Visit not found")
+
+    try:
+        # Delete associated items first if cascade is not automatic
+        db.query(Diagnosis).filter(Diagnosis.visit_id == visit_id).delete()
+        db.query(Prescription).filter(Prescription.visit_id == visit_id).delete()
+        db.query(LabTest).filter(LabTest.visit_id == visit_id).delete()
+        db.delete(v)
+        db.commit()
+        return {"status": "ok", "message": f"Visit {visit_id} and associated records successfully deleted."}
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

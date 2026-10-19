@@ -72,6 +72,8 @@ export interface ApiDoctor {
   full_name: string;
   specialization: string;
   license_number: string;
+  email?: string | null;
+  contact_number?: string | null;
 }
 
 export interface ApiPatient {
@@ -215,11 +217,23 @@ export const api = {
     apiRequest<ApiHospitalPatient[]>(`/api/hospitals/${hospitalId}/patients?limit=${limit}`),
 
   // Doctors
-  getDoctors: (hospitalId?: string) =>
-    apiRequest<ApiDoctor[]>(`/api/doctors${hospitalId ? `?hospital_id=${hospitalId}` : ""}`),
+  getDoctors: (hospitalId?: string, limit = 1000, q?: string) => {
+    const params = new URLSearchParams();
+    if (hospitalId) params.set("hospital_id", hospitalId);
+    if (limit) params.set("limit", String(limit));
+    if (q) params.set("q", q);
+    const qs = params.toString();
+    return apiRequest<ApiDoctor[]>(`/api/doctors${qs ? `?${qs}` : ""}`);
+  },
   getDoctor: (id: string) => apiRequest<ApiDoctor>(`/api/doctors/${id}`),
+  getAccessiblePatients: (doctorId: string) =>
+    apiRequest<string[]>(`/api/doctors/${doctorId}/accessible-patients`),
   createDoctor: (data: Partial<ApiDoctor>) =>
     apiRequest<ApiDoctor>("/api/doctors", { method: "POST", body: JSON.stringify(data) }),
+  updateDoctor: (id: string, data: Partial<ApiDoctor>) =>
+    apiRequest<ApiDoctor>(`/api/doctors/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  deleteDoctor: (id: string) =>
+    apiRequest<any>(`/api/doctors/${id}`, { method: "DELETE" }),
 
   // Patients
   getPatients: (query = "", limit = 100) =>
@@ -227,6 +241,10 @@ export const api = {
   getPatient: (id: string) => apiRequest<ApiPatient>(`/api/patients/${id}`),
   registerPatient: (data: Partial<ApiPatient>) =>
     apiRequest<ApiPatient>("/api/patients", { method: "POST", body: JSON.stringify(data) }),
+  updatePatient: (id: string, data: Partial<ApiPatient>) =>
+    apiRequest<ApiPatient>(`/api/patients/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  deletePatient: (id: string) =>
+    apiRequest<any>(`/api/patients/${id}`, { method: "DELETE" }),
   getTimeline: (patientId: string) =>
     apiRequest<ApiTimelineEntry[]>(`/api/patients/${patientId}/timeline`),
   getActivePrescriptions: (patientId: string) =>
@@ -237,6 +255,8 @@ export const api = {
   // Visits
   createVisit: (data: any) =>
     apiRequest<any>("/api/visits", { method: "POST", body: JSON.stringify(data) }),
+  deleteVisit: (id: number) =>
+    apiRequest<any>(`/api/visits/${id}`, { method: "DELETE" }),
   getVisits: (patientId?: string, doctorId?: string) => {
     const params = new URLSearchParams();
     if (patientId) params.append("patient_id", patientId);
@@ -245,6 +265,8 @@ export const api = {
   },
 
   // Consents
+  deleteConsent: (id: number) =>
+    apiRequest<any>(`/api/consents/${id}`, { method: "DELETE" }),
   getConsents: (patientId?: string, doctorId?: string, hospitalId?: string, limit = 100) => {
     const params = new URLSearchParams();
     if (patientId) params.append("patient_id", patientId);

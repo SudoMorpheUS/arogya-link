@@ -14,10 +14,10 @@ export const metadata: Metadata = { title: "Patients" };
 export default async function PatientsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; register?: string; action?: string }>;
+  searchParams: Promise<{ q?: string; register?: string; action?: string; view?: string }>;
 }) {
   const session = await requireSession(["doctor", "admin"]);
-  const { q = "", register, action } = await searchParams;
+  const { q = "", register, action, view } = await searchParams;
   let rows: (ApiPatient | import("@/lib/types").Patient)[] = [];
   let consentDist: any[] = [];
   try {
@@ -36,13 +36,31 @@ export default async function PatientsPage({
   const isDoctor = session.role === "doctor";
   const isRegistering = Boolean(register || action === "register");
 
+  let accessiblePatients = new Set<string>();
+  if (isDoctor && session.id) {
+    try {
+      const ids = await api.getAccessiblePatients(session.id);
+      accessiblePatients = new Set(ids);
+    } catch {
+      accessiblePatients = new Set(
+        rows.filter((p) => store.accessLevel(p.patient_id, session.id!) !== "none").map((p) => p.patient_id)
+      );
+    }
+  }
+
+  const currentView = view || (isDoctor ? "allowed" : "all");
+  const allowedRows = isDoctor
+    ? rows.filter((p) => accessiblePatients.has(p.patient_id) || store.accessLevel(p.patient_id, session.id!) !== "none")
+    : rows;
+  const displayedRows = currentView === "allowed" && isDoctor ? allowedRows : rows;
+
   return (
     <div className="page">
       <PageHeader
         title={isDoctor ? "Patients" : "Patient registry"}
         subtitle={
           isDoctor
-            ? "Search by name or patient ID. A chart opens only when the patient has allowed access."
+            ? "Showing patients with active consent granted to you or your hospital network."
             : "Registered patients and their global IDs. Administrators do not see clinical records."
         }
         actions={
@@ -57,27 +75,76 @@ export default async function PatientsPage({
         <input name="q" defaultValue={q} placeholder="Name, patient ID or blood group" aria-label="Search patients" type="search" />
         <button className="btn">Search</button>
         {q ? (
-          <Link className="btn btn--secondary" href="/patients">
+          <Link className="btn btn--secondary" href={`/patients${isDoctor ? `?view=${currentView}` : ""}`}>
             Clear
           </Link>
         ) : null}
       </form>
 
-      {rows.length === 0 ? (
-        <Empty>No patient matches that search.</Empty>
+      {isDoctor && (
+        <div className="flex" style={{ gap: 8, margin: "4px 0 14px", alignItems: "center" }}>
+          <span className="muted" style={{ fontSize: "var(--fs-sm)", fontWeight: 500 }}>Filter:</span>
+          <Link
+            href={`/patients?${new URLSearchParams({ ...(q ? { q } : {}), view: "allowed" }).toString()}`}
+            className={`btn btn--sm ${currentView === "allowed" ? "" : "btn--secondary"}`}
+          >
+            Allowed Consent ({allowedRows.length})
+          </Link>
+          <Link
+            href={`/patients?${new URLSearchParams({ ...(q ? { q } : {}), view: "all" }).toString()}`}
+            className={`btn btn--sm ${currentView === "all" ? "" : "btn--secondary"}`}
+          >
+            All Patients ({rows.length})
+          </Link>
+        </div>
+      )}
+
+      {displayedRows.length === 0 ? (
+        <Empty>
+          {isDoctor && currentView === "allowed" ? (
+            <>
+              No patients with active consent found matching that search.{" "}
+              <Link href={`/patients?view=all${q ? `&q=${encodeURIComponent(q)}` : ""}`} style={{ textDecoration: "underline", marginLeft: 4 }}>
+                Search all registered patients (for Emergency / Break-Glass)
+              </Link>
+            </>
+          ) : (
+            "No patient matches that search."
+          )}
+        </Empty>
       ) : (
         <DataTable
           caption="Patients"
-          rows={rows}
+          rows={displayedRows}
           rowKey={(p) => p.patient_id}
           columns={[
             {
               header: "Patient",
-              cell: (p) => (
-                <span className="truncate" style={{ display: "block", maxWidth: "24ch" }} title={p.full_name}>
-                  {p.full_name}
-                </span>
-              ),
+              cell: (p) =>
+                !isDoctor ? (
+                  <Link
+                    href={`/audit?patient_id=${p.patient_id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="truncate"
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "4px",
+                      maxWidth: "24ch",
+                      textDecoration: "underline",
+                      fontWeight: 600,
+                    }}
+                    title={`Open audit trail for ${p.full_name} in a new tab`}
+                  >
+                    <span>{p.full_name}</span>
+                    <span style={{ fontSize: "var(--fs-xs)" }}>↗</span>
+                  </Link>
+                ) : (
+                  <span className="truncate" style={{ display: "block", maxWidth: "24ch" }} title={p.full_name}>
+                    {p.full_name}
+                  </span>
+                ),
             },
             { header: "ID", cell: (p) => <MaskedId id={p.patient_id} /> },
             { header: "Age / sex", cell: (p) => `${ageOn(p.date_of_birth, today)} / ${p.gender}`, nowrap: true },
@@ -88,15 +155,18 @@ export default async function PatientsPage({
                   {
                     header: "Access",
                     cell: (p: (typeof rows)[number]) => {
-                      const level = store.accessLevel(p.patient_id, session.id!);
+                      const hasDbConsent = accessiblePatients.has(p.patient_id);
+                      const storeLevel = store.accessLevel(p.patient_id, session.id!);
+                      const isAllowed = hasDbConsent || storeLevel === "consent";
+                      const isEmergency = !isAllowed && storeLevel === "emergency";
                       return (
                         <span className="flex">
-                          {level === "none" ? (
-                            <Chip tone="attention">No consent</Chip>
-                          ) : level === "emergency" ? (
+                          {isAllowed ? (
+                            <Chip>Allowed</Chip>
+                          ) : isEmergency ? (
                             <Chip tone="attention">Emergency</Chip>
                           ) : (
-                            <Chip>Allowed</Chip>
+                            <Chip tone="attention">No consent</Chip>
                           )}
                           <Link className="btn btn--secondary btn--sm" href={`/patients/${p.patient_id}`}>
                             Open chart
@@ -129,6 +199,19 @@ export default async function PatientsPage({
                         </div>
                       );
                     },
+                  },
+                  {
+                    header: "Audit trail",
+                    cell: (p: (typeof rows)[number]) => (
+                      <Link
+                        className="btn btn--secondary btn--sm"
+                        href={`/audit?patient_id=${p.patient_id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Audit logs ↗
+                      </Link>
+                    ),
                   },
                 ]),
           ]}

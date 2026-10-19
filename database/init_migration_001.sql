@@ -23,7 +23,9 @@ CREATE TABLE doctor (
   hospital_id    VARCHAR(15)  NOT NULL REFERENCES hospital(hospital_id),
   full_name      VARCHAR(100) NOT NULL,
   specialization VARCHAR(80)  NOT NULL,
-  license_number VARCHAR(30)  UNIQUE NOT NULL
+  license_number VARCHAR(30)  UNIQUE NOT NULL,
+  email          VARCHAR(100),
+  contact_number VARCHAR(15)
 );
 
 
@@ -87,6 +89,12 @@ CREATE TABLE audit_log (
   details     TEXT
 );
 
+-- Indexing and Query Optimization
+CREATE INDEX IF NOT EXISTS idx_visit_patient ON visit(patient_id);
+CREATE INDEX IF NOT EXISTS idx_consent_patient_status ON consent(patient_id, status);
+CREATE INDEX IF NOT EXISTS idx_lab_test_name_date ON lab_test(test_name, test_date);
+CREATE INDEX IF NOT EXISTS idx_audit_patient_time ON audit_log(patient_id, action_time DESC);
+
 
 -- Stored Procedures
 CREATE OR REPLACE FUNCTION sp_grant_consent(
@@ -99,6 +107,9 @@ BEGIN
   IF p_hospital_id IS NULL AND p_doctor_id IS NULL THEN
     RAISE EXCEPTION 'Consent must name a hospital or a doctor';
   END IF;
+
+  PERFORM setval('consent_consent_id_seq', (SELECT COALESCE(MAX(consent_id), 0) + 1 FROM consent), false);
+
   INSERT INTO consent (patient_id, hospital_id, doctor_id, start_date, end_date, status)
   VALUES (p_patient_id, p_hospital_id, p_doctor_id, p_start_date, p_end_date, 'Active')
   RETURNING consent_id INTO new_id;
@@ -117,8 +128,8 @@ LANGUAGE SQL STABLE AS $$
     JOIN doctor d ON d.doctor_id = p_doctor_id
     WHERE c.patient_id = p_patient_id
       AND c.status = 'Active'
-      AND c.start_date <= CURRENT_DATE
-      AND (c.end_date IS NULL OR c.end_date >= CURRENT_DATE)
+      AND c.start_date <= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date
+      AND (c.end_date IS NULL OR c.end_date >= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date)
       AND (c.doctor_id = p_doctor_id OR c.hospital_id = d.hospital_id)
   );
 $$;

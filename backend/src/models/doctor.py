@@ -29,6 +29,8 @@ class Doctor(Base):
     full_name: Mapped[str] = mapped_column(String(100), nullable=False)
     specialization: Mapped[str] = mapped_column(String(80), nullable=False)
     license_number: Mapped[str] = mapped_column(String(30), unique=True, nullable=False)
+    email: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    contact_number: Mapped[str | None] = mapped_column(String(15), nullable=True)
 
     hospital: Mapped[Hospital] = relationship(back_populates="doctors")
     visits: Mapped[list[Visit]] = relationship(back_populates="doctor")

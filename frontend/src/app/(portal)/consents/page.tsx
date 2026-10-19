@@ -1,9 +1,8 @@
-import { Building2, MapPin, ShieldCheck, Stethoscope } from "lucide-react";
+import { ShieldCheck } from "lucide-react";
 import type { Metadata } from "next";
-import { ConfirmRevoke } from "@/components/ConfirmRevoke";
+import { ConsentsView, type EnrichedConsent } from "@/components/ConsentsView";
 import { GrantConsentForm } from "@/components/GrantConsentForm";
-import { Chip, DataTable, Empty, PageHeader, VisibilityNote } from "@/components/ui";
-import { daysBetween, formatDate } from "@/lib/format";
+import { PageHeader, VisibilityNote } from "@/components/ui";
 import { requireSession } from "@/lib/session";
 import { api } from "@/lib/api";
 import * as store from "@/lib/store";
@@ -58,7 +57,7 @@ export default async function ConsentsPage() {
     const [consentsData, hospData, docData] = await Promise.all([
       api.getConsents(session.id!),
       api.getHospitals(),
-      api.getDoctors(),
+      api.getDoctors(undefined, 1000),
     ]);
     rows = consentsData;
     hospitalsList = hospData;
@@ -89,9 +88,10 @@ export default async function ConsentsPage() {
   const doctors = doctorsList.map((d) => {
     const hosp = hospitalMap.get(d.hospital_id);
     const loc = parseLocationState(hosp?.address);
+    const formattedName = d.full_name.startsWith("Dr.") || d.full_name.startsWith("Dr ") ? d.full_name : `Dr. ${d.full_name}`;
     return {
       value: `doctor:${d.doctor_id}`,
-      label: d.full_name,
+      label: formattedName,
       subtitle: `${d.specialization || "General Medicine"} · ${hosp?.hospital_name || d.hospital_id} (${loc.formatted})`,
       type: "doctor" as const,
       badge: `${d.specialization || "Doctor"} · ${loc.city}`,
@@ -118,6 +118,13 @@ export default async function ConsentsPage() {
     const loc = c.location && c.location !== "—" ? { formatted: c.location, city: c.city, state: c.state } : parseLocationState(address);
 
     return {
+      consent_id: c.consent_id,
+      patient_id: c.patient_id,
+      hospital_id: c.hospital_id,
+      doctor_id: c.doctor_id,
+      start_date: c.start_date,
+      end_date: c.end_date,
+      status: c.status,
       isDoctor,
       name,
       specialization,
@@ -127,6 +134,8 @@ export default async function ConsentsPage() {
       state: loc.state,
     };
   };
+
+  const enrichedConsents: EnrichedConsent[] = rows.map(resolveConsent);
 
   return (
     <div className="page">
@@ -141,7 +150,7 @@ export default async function ConsentsPage() {
       </VisibilityNote>
 
       <div className="workspace">
-        <section className="card card-host pane" aria-labelledby="grant-title">
+        <section className="card card-host pane stack-sm" aria-labelledby="grant-title" style={{ minHeight: "100%", display: "flex", flexDirection: "column" }}>
           <div className="card-head">
             <h2 id="grant-title" className="flex">
               <ShieldCheck size={20} strokeWidth={1.75} aria-hidden="true" style={{ color: "var(--blue-600)" }} />
@@ -151,105 +160,7 @@ export default async function ConsentsPage() {
           <GrantConsentForm key={rows.filter((c) => c.status === "Revoked").length} hospitals={hospitals} doctors={doctors} today={today} />
         </section>
 
-        <section className="pane stack-sm" aria-labelledby="list-title">
-          <h2 id="list-title">Your consents</h2>
-          {rows.length === 0 ? (
-            <Empty>You haven&apos;t shared your record with anyone.</Empty>
-          ) : (
-            <DataTable
-              caption="Your consents"
-              rows={rows}
-              rowKey={(c) => c.consent_id}
-              columns={[
-                {
-                  header: "Granted to",
-                  cell: (c) => {
-                    const info = resolveConsent(c);
-                    return (
-                      <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
-                        {info.isDoctor ? (
-                          <Stethoscope size={16} style={{ color: "var(--blue-600)", flexShrink: 0 }} />
-                        ) : (
-                          <Building2 size={16} style={{ color: "var(--blue-600)", flexShrink: 0 }} />
-                        )}
-                        <div style={{ minWidth: 0 }}>
-                          <span style={{ fontWeight: 600, color: "var(--ink-900)", display: "block" }}>
-                            {info.name}
-                          </span>
-                          <span style={{ fontSize: "11px", color: "var(--ink-600)" }}>
-                            {info.isDoctor ? "Doctor" : "Whole hospital"}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  },
-                },
-                {
-                  header: "Specialization",
-                  cell: (c) => {
-                    const info = resolveConsent(c);
-                    return (
-                      <span
-                        style={{
-                          display: "inline-block",
-                          padding: "2px 8px",
-                          borderRadius: "4px",
-                          fontSize: "var(--fs-xs)",
-                          fontWeight: 500,
-                          background: info.isDoctor ? "var(--blue-50, #242424)" : "transparent",
-                          border: "1px solid var(--line)",
-                          color: info.isDoctor ? "var(--ink-900)" : "var(--ink-600)",
-                        }}
-                      >
-                        {info.specialization}
-                      </span>
-                    );
-                  },
-                },
-                {
-                  header: "Hospital / Facility",
-                  cell: (c) => {
-                    const info = resolveConsent(c);
-                    return <span style={{ fontWeight: 500 }}>{info.hospitalName}</span>;
-                  },
-                },
-                {
-                  header: "Location & State",
-                  cell: (c) => {
-                    const info = resolveConsent(c);
-                    return (
-                      <div style={{ display: "flex", alignItems: "center", gap: "5px", color: "var(--ink-900)" }}>
-                        <MapPin size={14} style={{ color: "var(--blue-600)", flexShrink: 0 }} />
-                        <span>{info.location}</span>
-                      </div>
-                    );
-                  },
-                  nowrap: true,
-                },
-                { header: "From", cell: (c) => formatDate(c.start_date), nowrap: true },
-                { header: "Until", cell: (c) => (c.end_date ? formatDate(c.end_date) : "No end date"), nowrap: true },
-                {
-                  header: "Status",
-                  cell: (c) => {
-                    if (c.status === "Revoked") return <Chip tone="neutral" icon={false}>Revoked</Chip>;
-                    if (c.end_date && c.end_date < today) return <Chip tone="neutral" icon={false}>Expired</Chip>;
-                    if (c.start_date > today) return <Chip tone="neutral" icon={false}>Scheduled</Chip>;
-                    if (c.end_date && daysBetween(today, c.end_date) <= 90)
-                      return <Chip tone="attention">Ends in {daysBetween(today, c.end_date)}d</Chip>;
-                    return <Chip>Active</Chip>;
-                  },
-                },
-                {
-                  header: "",
-                  cell: (c) =>
-                    c.status === "Active" && !(c.end_date && c.end_date < today) ? (
-                      <ConfirmRevoke consentId={c.consent_id} who={resolveConsent(c).name} />
-                    ) : null,
-                },
-              ]}
-            />
-          )}
-        </section>
+        <ConsentsView consents={enrichedConsents} today={today} />
       </div>
     </div>
   );

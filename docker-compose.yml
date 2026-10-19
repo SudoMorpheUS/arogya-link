@@ -10,6 +10,7 @@ services:
     environment:
       NODE_ENV: production
       BACKEND_API_URL: http://backend:8000
+      TZ: "Asia/Kolkata"
     depends_on:
       backend:
         condition: service_started
@@ -27,6 +28,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://aarogya:aarogya_dev_password@db:5432/aarogya_db
       PYTHONUNBUFFERED: "1"
+      TZ: "Asia/Kolkata"
     depends_on:
       db:
         condition: service_healthy
@@ -39,6 +41,7 @@ services:
       POSTGRES_DB: aarogya_db
       POSTGRES_USER: aarogya
       POSTGRES_PASSWORD: aarogya_dev_password
+      TZ: "Asia/Kolkata"
     ports:
       - "5432:5432"
     volumes:

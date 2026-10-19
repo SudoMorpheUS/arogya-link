@@ -96,6 +96,22 @@ def create_audit_entry(payload: dict[str, Any], db: Session = Depends(get_db)) -
     action = payload.get("action", "READ")
     details = payload.get("details", "")
 
+    # Debounce duplicate READ / DENIED logs from the same doctor for the same patient within the last 2 minutes
+    if action in ("READ", "DENIED", "EMERGENCY_READ") and patient_id and doctor_id:
+        recent_threshold = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=2)
+        recent_log = db.scalar(
+            select(AuditLog)
+            .where(
+                AuditLog.patient_id == patient_id,
+                AuditLog.doctor_id == doctor_id,
+                AuditLog.action == action,
+                AuditLog.action_time >= recent_threshold,
+            )
+            .order_by(AuditLog.action_time.desc())
+        )
+        if recent_log:
+            return {"log_id": recent_log.log_id, "action": recent_log.action, "status": "debounced"}
+
     log_entry = AuditLog(
         patient_id=patient_id,
         doctor_id=doctor_id,

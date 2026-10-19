@@ -108,6 +108,8 @@ database-data/
 *.dump.gz
 
 # --- Runtime files and logs ---
+*.zip
+*.tar.gz
 *.pid
 *.pid.lock
 *.seed

@@ -40,8 +40,56 @@ export default async function DashboardPage({ searchParams }: { searchParams: Se
 
 async function PatientDashboard({ session, showAll }: { session: Session; showAll: boolean }) {
   const id = session.id!;
-  const patient = store.getPatient(id)!;
-  const entries = store.timeline(id);
+  let patient = store.getPatient(id);
+  if (!patient) {
+    try {
+      const p = await api.getPatient(id);
+      if (p) {
+        patient = {
+          patient_id: p.patient_id,
+          full_name: p.full_name,
+          date_of_birth: p.date_of_birth,
+          gender: p.gender as any,
+          blood_group: p.blood_group as any,
+          contact_number: p.contact_number,
+          email: p.email,
+        };
+      }
+    } catch {}
+  }
+  if (!patient) {
+    patient = {
+      patient_id: id,
+      full_name: session.displayName || id,
+      date_of_birth: "1990-01-01",
+      gender: "M",
+      blood_group: null,
+      contact_number: "—",
+      email: session.email || "",
+    };
+  }
+
+  let entries = store.timeline(id);
+  try {
+    const apiTimeline = await api.getTimeline(id);
+    if (apiTimeline && apiTimeline.length > 0) {
+      entries = apiTimeline.map((t) => ({
+        visit_id: t.visit_id,
+        patient_id: id,
+        hospital_id: t.hospital.hospital_id,
+        hospital_name: t.hospital.hospital_name,
+        doctor_id: t.doctor.doctor_id,
+        doctor_name: t.doctor.full_name,
+        visit_date: t.visit_date,
+        visit_type: t.visit_type,
+        chief_complaint: t.chief_complaint,
+        diagnoses: t.diagnoses,
+        prescriptions: t.prescriptions,
+        labs: t.lab_tests,
+      })) as any;
+    }
+  } catch {}
+
   const today = store.today();
   let consents = store
     .consentsOf(id)
@@ -54,8 +102,23 @@ async function PatientDashboard({ session, showAll }: { session: Session; showAl
       ) as any;
     }
   } catch {}
-  const labs = store.labsOf(id);
-  const meds = store.activePrescriptions(id);
+
+  let labs = store.labsOf(id);
+  try {
+    const apiLabs = await api.getPatientLabs(id);
+    if (apiLabs && apiLabs.length > 0) {
+      labs = apiLabs;
+    }
+  } catch {}
+
+  let meds = store.activePrescriptions(id);
+  try {
+    const apiMeds = await api.getActivePrescriptions(id);
+    if (apiMeds && apiMeds.length > 0) {
+      meds = apiMeds;
+    }
+  } catch {}
+
   let events = store.auditForPatient(id).filter((a) => ["READ", "EMERGENCY_READ", "DENIED"].includes(a.action)).length;
   try {
     const apiLogs = await api.getAuditLogs(id, undefined, 500);
@@ -63,6 +126,7 @@ async function PatientDashboard({ session, showAll }: { session: Session; showAl
       events = apiLogs.filter((a) => ["READ", "EMERGENCY_READ", "DENIED"].includes(a.action)).length;
     }
   } catch {}
+
   const team = [...new Map(entries.map((e) => [e.doctor_id, e])).values()];
   const last = entries[0];
 
@@ -71,7 +135,7 @@ async function PatientDashboard({ session, showAll }: { session: Session; showAl
       <section className="band hero-strip" aria-label="Welcome">
         <div>
           <p className="eyebrow">Your health record</p>
-          <h1>Hello, {patient.full_name.split(" ")[0]}</h1>
+          <h1>Hello, {patient.full_name ? patient.full_name.split(" ")[0] : id}</h1>
           <p className="muted" style={{ marginTop: 4 }}>
             {last ? `Last visit ${formatDate(last.visit_date)} at ${last.hospital_name}.` : "No visits recorded yet."}
           </p>
@@ -169,7 +233,7 @@ async function PatientDashboard({ session, showAll }: { session: Session; showAl
                         {e.doctor_name}
                       </strong>
                       <span className="muted truncate" style={{ display: "block", fontSize: "var(--fs-sm)" }}>
-                        {store.getDoctor(e.doctor_id)?.specialization} · {e.hospital_name}
+                        {store.getDoctor(e.doctor_id)?.specialization || "Physician"} · {e.hospital_name}
                       </span>
                     </span>
                   </span>
@@ -189,7 +253,7 @@ async function PatientDashboard({ session, showAll }: { session: Session; showAl
               <strong className="wrap">{patient.full_name}</strong>
               <div className="facts">
                 <span>
-                  <b>{ageOn(patient.date_of_birth, today)}</b> yrs · {GENDER_LABEL[patient.gender]}
+                  <b>{ageOn(patient.date_of_birth, today)}</b> yrs · {GENDER_LABEL[patient.gender] ?? patient.gender}
                 </span>
                 <span>
                   Blood group <b>{patient.blood_group ?? "—"}</b>
@@ -214,26 +278,221 @@ async function PatientDashboard({ session, showAll }: { session: Session; showAl
 
 // ----------------------------------------------------------------- doctor
 
-function DoctorDashboard({ session, showAll, selected }: { session: Session; showAll: boolean; selected?: string }) {
+async function DoctorDashboard({ session, showAll, selected }: { session: Session; showAll: boolean; selected?: string }) {
   const id = session.id!;
-  const doctor = store.getDoctor(id)!;
-  const hospital = store.getHospital(doctor.hospital_id)!;
-  const queue = store.patientsWithAccess(id);
+  let doctor = store.getDoctor(id);
+  let hospitalName = "";
+  if (!doctor) {
+    try {
+      const d = await api.getDoctor(id);
+      if (d) {
+        doctor = {
+          doctor_id: d.doctor_id,
+          hospital_id: d.hospital_id,
+          full_name: d.full_name,
+          specialization: d.specialization,
+          license_number: d.license_number || "MCI-GEN-00000",
+          email: `${d.doctor_id.toLowerCase()}@hospital.in`,
+        };
+        hospitalName = d.hospital_name || "";
+      }
+    } catch {}
+  }
+  if (!doctor) {
+    doctor = {
+      doctor_id: id,
+      hospital_id: "HSP1001",
+      full_name: session.displayName || id,
+      specialization: "General Physician",
+      license_number: "MCI-GEN-00000",
+      email: session.email || "",
+    };
+  }
+  const activeDoctor = doctor;
+  if (!hospitalName) {
+    hospitalName = store.getHospital(activeDoctor.hospital_id)?.hospital_name || "General Hospital";
+  }
+
+  let accessiblePatientIds: string[] = [];
+  try {
+    accessiblePatientIds = await api.getAccessiblePatients(id);
+  } catch {}
+
+  const queueMap = new Map<string, { patient_id: string; full_name: string; date_of_birth: string; gender: any; blood_group: any; contact_number: string; email: string | null; last_visit: string | null }>();
+
+  // Include local store patients
+  for (const p of store.patientsWithAccess(id)) {
+    queueMap.set(p.patient_id, p);
+  }
+
+  // Include accessible patients from PostgreSQL
+  for (const pid of accessiblePatientIds) {
+    if (!queueMap.has(pid)) {
+      let p = store.getPatient(pid);
+      if (!p) {
+        try {
+          const apiP = await api.getPatient(pid);
+          if (apiP) {
+            p = {
+              patient_id: apiP.patient_id,
+              full_name: apiP.full_name,
+              date_of_birth: apiP.date_of_birth,
+              gender: apiP.gender as any,
+              blood_group: apiP.blood_group as any,
+              contact_number: apiP.contact_number,
+              email: apiP.email,
+            };
+          }
+        } catch {}
+      }
+      if (p) {
+        queueMap.set(pid, {
+          ...p,
+          last_visit: null,
+        });
+      }
+    }
+  }
+
+  const queue = Array.from(queueMap.values());
   const attention = attentionFor(session);
-  const mine = store.auditForDoctor(id);
   const myVisits = store.listPatients().flatMap((p) => store.timeline(p.patient_id)).filter((v) => v.doctor_id === id).length;
   const duplicates = store.duplicateLabs().filter((d) => store.accessLevel(d.patient_id, id) !== "none").length;
   const critical = attention.filter((a) => a.severity === "critical").length;
 
-  const target = selected ? queue.find((p) => p.patient_id === selected) : undefined;
-  const chart = target ? store.openChart(target.patient_id, id) : null;
+  let target = selected ? queue.find((p) => p.patient_id === selected) : undefined;
+  if (!target && selected) {
+    let p = store.getPatient(selected);
+    if (!p) {
+      try {
+        const apiP = await api.getPatient(selected);
+        if (apiP) {
+          p = {
+            patient_id: apiP.patient_id,
+            full_name: apiP.full_name,
+            date_of_birth: apiP.date_of_birth,
+            gender: apiP.gender as any,
+            blood_group: apiP.blood_group as any,
+            contact_number: apiP.contact_number,
+            email: apiP.email,
+          };
+        }
+      } catch {}
+    }
+    if (p) {
+      target = { ...p, last_visit: null };
+    }
+  }
+
+  let chart: {
+    ok: boolean;
+    level?: "consent" | "emergency";
+    timeline: any[];
+    recentLabs: any[];
+    prescriptions: any[];
+  } | null = null;
+
+  if (target) {
+    let hasConsent = false;
+    try {
+      const consentRes = await api.checkConsent(target.patient_id, id);
+      hasConsent = Boolean(consentRes?.has_consent);
+    } catch {
+      hasConsent = store.hasConsent(target.patient_id, id);
+    }
+
+    let hasEmergency = false;
+    try {
+      const emRes = await api.checkEmergencyAccess(target.patient_id, id);
+      hasEmergency = Boolean(emRes?.has_emergency_access);
+    } catch {
+      hasEmergency = store.hasEmergencyAccess(target.patient_id, id);
+    }
+
+    if (hasConsent || hasEmergency) {
+      const level = hasConsent ? "consent" : "emergency";
+      let timelineEntries: any[] = store.timeline(target.patient_id);
+      try {
+        const apiTl = await api.getTimeline(target.patient_id);
+        if (apiTl && apiTl.length > 0) {
+          timelineEntries = apiTl.map((t) => ({
+            visit_id: t.visit_id,
+            patient_id: target!.patient_id,
+            hospital_id: t.hospital.hospital_id,
+            hospital_name: t.hospital.hospital_name,
+            doctor_id: t.doctor.doctor_id,
+            doctor_name: t.doctor.full_name,
+            visit_date: t.visit_date,
+            visit_type: t.visit_type,
+            chief_complaint: t.chief_complaint,
+            diagnoses: t.diagnoses,
+            prescriptions: t.prescriptions,
+            labs: t.lab_tests,
+          }));
+        }
+      } catch {}
+
+      let targetLabs: any[] = store.labsOf(target.patient_id);
+      try {
+        const apiLabs = await api.getPatientLabs(target.patient_id);
+        if (apiLabs && apiLabs.length > 0) {
+          targetLabs = apiLabs;
+        }
+      } catch {}
+
+      let activeMeds: any[] = store.activePrescriptions(target.patient_id);
+      try {
+        const apiMeds = await api.getActivePrescriptions(target.patient_id);
+        if (apiMeds && apiMeds.length > 0) {
+          activeMeds = apiMeds;
+        }
+      } catch {}
+
+      chart = {
+        ok: true,
+        level,
+        timeline: timelineEntries,
+        recentLabs: targetLabs,
+        prescriptions: activeMeds,
+      };
+
+      try {
+        await api.createAuditEntry({
+          patient_id: target.patient_id,
+          doctor_id: id,
+          action: level === "emergency" ? "EMERGENCY_READ" : "READ",
+          details: `Viewed summary for patient ${target.full_name} (${target.patient_id})`,
+        });
+      } catch {}
+    } else {
+      chart = { ok: false, timeline: [], recentLabs: [], prescriptions: [] };
+    }
+  }
+
+  let mine: any[] = store.auditForDoctor(id);
+  try {
+    const apiLogs = await api.getAuditLogs(undefined, id, 10);
+    if (apiLogs && apiLogs.length > 0) {
+      mine = apiLogs.map((a) => ({
+        log_id: a.log_id,
+        action_time: a.action_time,
+        patient_id: a.patient_id,
+        patient_name: a.patient_name || a.patient_id,
+        doctor_id: a.doctor_id,
+        doctor_name: a.doctor_name || activeDoctor.full_name,
+        action: a.action as any,
+        details: a.details,
+      }));
+    }
+  } catch {}
+
   const today = store.today();
 
   return (
     <div className="page">
       <PageHeader
-        title={doctor.full_name}
-        subtitle={`${doctor.specialization} · ${hospital.hospital_name}`}
+        title={activeDoctor.full_name}
+        subtitle={`${activeDoctor.specialization} · ${hospitalName}`}
         actions={
           <Link className="btn" href="/patients">
             Find a patient
@@ -297,7 +556,7 @@ function DoctorDashboard({ session, showAll, selected }: { session: Session; sho
                   </h2>
                   <div className="facts">
                     <span>
-                      <b>{ageOn(target.date_of_birth, today)}</b> yrs · {GENDER_LABEL[target.gender]}
+                      <b>{ageOn(target.date_of_birth, today)}</b> yrs · {GENDER_LABEL[target.gender as keyof typeof GENDER_LABEL] ?? target.gender}
                     </span>
                     <span>
                       Blood group <b>{target.blood_group ?? "—"}</b>
@@ -319,12 +578,12 @@ function DoctorDashboard({ session, showAll, selected }: { session: Session; sho
               </ul>
 
               <h3>Current medicines</h3>
-              {store.activePrescriptions(target.patient_id).length === 0 ? (
+              {chart.prescriptions.length === 0 ? (
                 <p className="muted">None in progress.</p>
               ) : (
                 <ul className="dx-list">
-                  {store.activePrescriptions(target.patient_id).map((m) => (
-                    <li key={m.prescription_id}>
+                  {chart.prescriptions.map((m: any, idx: number) => (
+                    <li key={m.prescription_id || idx}>
                       {m.medicine_name} {m.dosage} · {m.frequency}
                     </li>
                   ))}
@@ -348,7 +607,7 @@ function DoctorDashboard({ session, showAll, selected }: { session: Session; sho
               </div>
               <DataTable
                 caption="Latest lab results"
-                rows={store.labsOf(target.patient_id).slice(0, 6)}
+                rows={chart.recentLabs.slice(0, 6)}
                 rowKey={(l) => l.lab_test_id}
                 rowClass={(l) => (assessLab(l.test_name, l.result).flag === "critical" ? "row-critical" : undefined)}
                 columns={[
@@ -361,7 +620,7 @@ function DoctorDashboard({ session, showAll, selected }: { session: Session; sho
                       return <LabChip flag={a.flag} direction={a.direction} />;
                     },
                   },
-                  { header: "Where", cell: (l) => l.hospital_name },
+                  { header: "Where", cell: (l) => l.hospital_name || hospitalName },
                 ]}
               />
             </section>
@@ -492,34 +751,68 @@ async function AdminDashboard({
               Select facility to view synced patient roster
             </span>
           </div>
-          <div className="stack">
+          <div className="stack-sm" style={{ gap: "10px" }}>
             {caseload.map((c) => {
               const isSelected = c.hospital_id === currentHospitalId;
               return (
                 <div
-                  className="bar-row"
                   key={c.hospital_id}
-                  style={
-                    isSelected
-                      ? {
-                          outline: "2px solid var(--blue-500)",
-                          background: "var(--card-hover, rgba(255,255,255,0.03))",
-                          borderRadius: 8,
-                          padding: "6px 10px",
-                        }
-                      : { padding: "4px 0" }
-                  }
+                  style={{
+                    background: isSelected
+                      ? "rgba(59, 130, 246, 0.08)"
+                      : "var(--bg-subtle, rgba(255, 255, 255, 0.02))",
+                    border: isSelected
+                      ? "2px solid var(--blue-500)"
+                      : "1px solid var(--border)",
+                    borderRadius: "var(--radius-md, 8px)",
+                    padding: "10px 14px",
+                    transition: "all 0.15s ease",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "8px",
+                  }}
                 >
-                  <div className="list-row">
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: "10px",
+                      minWidth: 0,
+                    }}
+                  >
                     <Link
                       href={`/dashboard?hospital=${c.hospital_id}#hospital-patients`}
-                      style={{ textDecoration: "none", color: "inherit", flex: 1 }}
+                      style={{
+                        textDecoration: "none",
+                        color: "inherit",
+                        minWidth: 0,
+                        flex: "1 1 auto",
+                        overflow: "hidden",
+                      }}
                     >
-                      <strong className="truncate" title={c.hospital_name}>
-                        {c.hospital_name} {isSelected ? "•" : ""}
+                      <strong
+                        className="truncate"
+                        title={c.hospital_name}
+                        style={{
+                          display: "block",
+                          fontSize: "var(--fs-sm)",
+                          fontWeight: 600,
+                          color: isSelected ? "var(--blue-400)" : "var(--text-primary)",
+                        }}
+                      >
+                        {c.hospital_name}
                       </strong>
                     </Link>
-                    <span className="muted nowrap" style={{ fontSize: "var(--fs-sm)", whiteSpace: "nowrap" }}>
+                    <span
+                      className="muted"
+                      style={{
+                        fontSize: "var(--fs-xs)",
+                        whiteSpace: "nowrap",
+                        flexShrink: 0,
+                        fontWeight: 500,
+                      }}
+                    >
                       {c.visit_count} visits · {c.patient_count ?? c.active_patients ?? 0} patients
                     </span>
                   </div>
@@ -527,6 +820,7 @@ async function AdminDashboard({
                     className="bar"
                     role="img"
                     aria-label={`${c.opd_visits || 0} outpatient, ${c.emergency_visits || 0} emergency, ${c.inpatient_visits || 0} inpatient visits`}
+                    style={{ height: "6px", borderRadius: "3px" }}
                   >
                     <span style={{ width: `${((c.opd_visits || 0) / maxVisits) * 100}%` }} />
                     <span style={{ width: `${((c.emergency_visits || 0) / maxVisits) * 100}%` }} />

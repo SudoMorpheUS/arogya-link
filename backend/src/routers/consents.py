@@ -171,7 +171,8 @@ def grant_consent(payload: dict[str, Any], db: Session = Depends(get_db)) -> dic
     patient_id = payload.get("patient_id")
     hospital_id = payload.get("hospital_id") or None
     doctor_id = payload.get("doctor_id") or None
-    start_date_val = payload.get("start_date") or datetime.date.today().isoformat()
+    ist_tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+    start_date_val = payload.get("start_date") or datetime.datetime.now(ist_tz).date().isoformat()
     end_date_val = payload.get("end_date") or None
 
     if not patient_id:
@@ -180,6 +181,13 @@ def grant_consent(payload: dict[str, Any], db: Session = Depends(get_db)) -> dic
         raise HTTPException(status_code=400, detail="Consent must target either a hospital or a doctor")
 
     new_id = None
+    # Ensure sequence is synchronized before insert
+    try:
+        db.execute(text("SELECT setval('consent_consent_id_seq', (SELECT COALESCE(MAX(consent_id), 0) + 1 FROM consent), false)"))
+        db.commit()
+    except Exception:
+        db.rollback()
+
     # Call the PostgreSQL stored procedure `sp_grant_consent`
     try:
         new_id = db.scalar(
@@ -198,6 +206,12 @@ def grant_consent(payload: dict[str, Any], db: Session = Depends(get_db)) -> dic
     except Exception:
         db.rollback()
         # Fallback to direct ORM insert if procedure fails
+        try:
+            db.execute(text("SELECT setval('consent_consent_id_seq', (SELECT COALESCE(MAX(consent_id), 0) + 1 FROM consent), false)"))
+            db.commit()
+        except Exception:
+            db.rollback()
+
         start_date = datetime.date.fromisoformat(start_date_val) if isinstance(start_date_val, str) else start_date_val
         end_date = datetime.date.fromisoformat(end_date_val) if end_date_val and isinstance(end_date_val, str) else end_date_val
         c = Consent(
@@ -241,7 +255,9 @@ def revoke_consent(consent_id: int, payload: dict[str, Any] | None = None, db: S
     if not consent:
         raise HTTPException(status_code=404, detail="Consent not found")
 
-    today = datetime.date.today()
+    ist_tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+    today = datetime.datetime.now(ist_tz).date()
+    now_ist = datetime.datetime.now(ist_tz)
     consent.status = "Revoked"
     consent.end_date = today
     try:
@@ -249,12 +265,36 @@ def revoke_consent(consent_id: int, payload: dict[str, Any] | None = None, db: S
             patient_id=consent.patient_id,
             doctor_id=consent.doctor_id,
             action="CONSENT_CHANGE",
-            action_time=datetime.datetime.now(),
+            action_time=now_ist,
             details=f"consent_id={consent.consent_id} status=Revoked hospital={consent.hospital_id or '—'} doctor={consent.doctor_id or '—'}",
         )
         db.add(audit)
     except Exception as audit_err:
         print(f"Warning: failed to write revoke audit log: {audit_err}")
+
+    # If revoking a doctor consent, also cascade revoke any duplicate active consents for this exact doctor
+    if consent.doctor_id:
+        other_doc_consents = db.scalars(
+            select(Consent).where(
+                Consent.patient_id == consent.patient_id,
+                Consent.doctor_id == consent.doctor_id,
+                Consent.consent_id != consent.consent_id,
+                Consent.status == "Active",
+            )
+        ).all()
+        for odc in other_doc_consents:
+            odc.status = "Revoked"
+            odc.end_date = today
+            try:
+                db.add(AuditLog(
+                    patient_id=odc.patient_id,
+                    doctor_id=odc.doctor_id,
+                    action="CONSENT_CHANGE",
+                    action_time=now_ist,
+                    details=f"consent_id={odc.consent_id} status=Revoked doctor={odc.doctor_id} (doctor revoked)",
+                ))
+            except Exception:
+                pass
 
     # If revoking a hospital consent, also cascade revoke any active consents for doctors at that hospital
     if consent.hospital_id:
@@ -327,7 +367,8 @@ def check_consent(
         if not doc:
             has_consent = False
         else:
-            today = datetime.date.today()
+            ist_tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+            today = datetime.datetime.now(ist_tz).date()
             consent = db.scalar(
                 select(Consent).where(
                     Consent.patient_id == patient_id,
@@ -344,3 +385,18 @@ def check_consent(
         "doctor_id": doctor_id,
         "has_consent": bool(has_consent),
     }
+
+
+@router.delete("/{consent_id}")
+def delete_consent(consent_id: int, db: Session = Depends(get_db)):
+    """Hard delete a consent record from PostgreSQL (Delete operation)."""
+    c = db.scalar(select(Consent).where(Consent.consent_id == consent_id))
+    if not c:
+        raise HTTPException(status_code=404, detail="Consent record not found")
+    try:
+        db.delete(c)
+        db.commit()
+        return {"status": "ok", "message": f"Consent {consent_id} permanently removed."}
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

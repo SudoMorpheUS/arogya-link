@@ -32,9 +32,9 @@
   --shadow-2: 0 4px 16px rgba(22, 33, 44, 0.08);
 
   /* tower loader faces (blue ramp) */
-  --loader-top: var(--blue-300);
-  --loader-left: var(--blue-600);
-  --loader-right: var(--blue-700);
+  --loader-top: #93c5fd;
+  --loader-left: #3b82f6;
+  --loader-right: #1d4ed8;
 
   /* type */
   --font-ui: var(--font-inter), "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
@@ -99,9 +99,10 @@
   --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.4);
   --shadow-2: 0 4px 16px rgba(0, 0, 0, 0.8);
 
-  --loader-top: #888888;
-  --loader-left: #444444;
-  --loader-right: #1C1C1C;
+  /* Tower loader / brand logo (vibrant luminous blues for high visibility in dark mode) */
+  --loader-top: #93c5fd;
+  --loader-left: #60a5fa;
+  --loader-right: #2563eb;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -142,9 +143,10 @@
     --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.4);
     --shadow-2: 0 4px 16px rgba(0, 0, 0, 0.8);
 
-    --loader-top: #888888;
-    --loader-left: #444444;
-    --loader-right: #1C1C1C;
+    /* Tower loader / brand logo (vibrant luminous blues for high visibility in dark mode) */
+    --loader-top: #93c5fd;
+    --loader-left: #60a5fa;
+    --loader-right: #2563eb;
   }
 }
 
@@ -737,12 +739,13 @@ kbd {
 .workspace {
   display: grid;
   gap: var(--gap);
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
-  align-items: start;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr));
+  align-items: stretch;
 }
 
 [data-shell="ultra"] .workspace {
-  grid-template-columns: repeat(auto-fit, minmax(clamp(360px, 24vw, 560px), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(clamp(380px, 24vw, 560px), 1fr));
+  align-items: stretch;
 }
 
 .grid {
@@ -1623,13 +1626,54 @@ dialog.modal::backdrop {
 .idle-lock {
   position: fixed;
   inset: 0;
-  z-index: 90;
+  z-index: 9999;
   display: grid;
   place-items: center;
-  padding: 16px;
-  background: rgba(250, 252, 254, 0.72);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(22px) saturate(190%);
+  -webkit-backdrop-filter: blur(22px) saturate(190%);
+  animation: fadeIn 0.25s ease-out;
+}
+
+[data-theme="dark"] .idle-lock {
+  background: rgba(8, 12, 22, 0.65);
+}
+
+.idle-lock-card {
+  max-width: 440px;
+  width: 100%;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(28px) saturate(200%);
+  -webkit-backdrop-filter: blur(28px) saturate(200%);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 20px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.4) inset;
+  padding: 36px 28px;
+  animation: scaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-theme="dark"] .idle-lock-card {
+  background: rgba(22, 27, 34, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 30px 60px -12px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+}
+
+.idle-lock-icon-wrap {
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  color: var(--blue-600, #3b82f6);
+  box-shadow: 0 0 24px rgba(59, 130, 246, 0.25);
 }
 
 .id-mask {
@@ -1868,24 +1912,32 @@ dialog.modal::backdrop {
 }
 
 .persona-pills {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
   gap: 8px;
-  margin-top: 8px;
+  margin-top: 10px;
+}
+
+@media (max-width: 480px) {
+  .persona-pills {
+    grid-template-columns: 1fr;
+  }
 }
 
 .persona-pill {
-  padding: 6px 12px;
-  border-radius: 9999px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm, 6px);
   border: 1px solid var(--line);
   background: var(--white);
   font-size: var(--fs-xs);
   cursor: pointer;
-  color: var(--ink-600);
+  color: var(--ink-700);
   transition: all 150ms ease;
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: space-between;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .persona-pill:hover {
@@ -2393,15 +2445,15 @@ dialog.modal::backdrop {
 }
 
 [data-theme="dark"] .persona-pill {
-  background: #1C1C1C;
-  border-color: #444444;
-  color: #B0B0B0;
+  background: #181818;
+  border-color: #333333;
+  color: #D4D4D4;
 }
 
 [data-theme="dark"] .persona-pill:hover {
-  background: #252525;
-  border-color: #888888;
-  color: #E0E0E0;
+  background: #222222;
+  border-color: #3b82f6;
+  color: #FFFFFF;
 }
 
 [data-theme="dark"] .role-btn {

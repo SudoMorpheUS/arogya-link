@@ -34,14 +34,16 @@ def lookup_user(
         if a["email"].lower() == clean_email:
             return {"role": "admin", "id": None, "name": a["name"], "email": a["email"]}
 
-    # 2. Check Doctor (by email or prefix)
-    doc = db.scalar(
-        select(Doctor).where(
-            func.lower(Doctor.license_number).like(f"%{clean_email.split('@')[0]}%")
+    # 2. Check Doctor (by exact email, license, or prefix)
+    doc = db.scalar(select(Doctor).where(func.lower(Doctor.email) == clean_email))
+    if not doc:
+        doc = db.scalar(
+            select(Doctor).where(
+                func.lower(Doctor.license_number).like(f"%{clean_email.split('@')[0]}%")
+            )
         )
-    )
     if not doc and "@" in clean_email:
-        # Check doctors with email pattern
+        # Check doctors with name/email pattern
         doc = db.scalar(
             select(Doctor)
             .where(func.lower(Doctor.full_name).like(f"%{clean_email.split('@')[0].replace('.', ' ')}%"))

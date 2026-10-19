@@ -241,3 +241,61 @@ def get_patient_labs(patient_id: str, db: Session = Depends(get_db)) -> list[dic
             "hospital_id": hosp.hospital_id,
         })
     return results
+
+
+@router.put("/{patient_id}")
+def update_patient(patient_id: str, payload: dict[str, Any], db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Update patient demographic details in PostgreSQL (Update operation)."""
+    pat = db.scalar(select(Patient).where(Patient.patient_id == patient_id))
+    if not pat:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    if "full_name" in payload and payload["full_name"]:
+        pat.full_name = str(payload["full_name"]).strip()
+    if "blood_group" in payload:
+        pat.blood_group = payload["blood_group"]
+    if "contact_number" in payload and payload["contact_number"]:
+        pat.contact_number = str(payload["contact_number"]).strip()
+    if "email" in payload:
+        pat.email = str(payload["email"]).strip() if payload["email"] else None
+    if "gender" in payload and payload["gender"]:
+        pat.gender = str(payload["gender"]).upper()[:1]
+    if "date_of_birth" in payload and payload["date_of_birth"]:
+        dob_val = payload["date_of_birth"]
+        pat.date_of_birth = datetime.date.fromisoformat(dob_val) if isinstance(dob_val, str) else dob_val
+
+    try:
+        db.commit()
+        db.refresh(pat)
+        return {
+            "patient_id": pat.patient_id,
+            "full_name": pat.full_name,
+            "date_of_birth": pat.date_of_birth.isoformat() if pat.date_of_birth else "",
+            "gender": pat.gender,
+            "blood_group": pat.blood_group,
+            "contact_number": pat.contact_number,
+            "email": pat.email,
+            "message": f"Patient {pat.patient_id} successfully updated in PostgreSQL.",
+        }
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.delete("/{patient_id}")
+def delete_patient(patient_id: str, db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Delete patient record from PostgreSQL (Delete operation)."""
+    pat = db.scalar(select(Patient).where(Patient.patient_id == patient_id))
+    if not pat:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    try:
+        db.delete(pat)
+        db.commit()
+        return {"status": "ok", "message": f"Patient {patient_id} successfully deleted from PostgreSQL."}
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot delete patient with active clinical visits, consents or audit records: {str(exc)}"
+        ) from exc

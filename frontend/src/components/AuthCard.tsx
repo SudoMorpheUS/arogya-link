@@ -19,27 +19,45 @@ const DEMO_PASSWORD = "AarogyaLink@123";
 
 const DEMO_PERSONAS = [
   {
+    label: "Mudit Jha",
+    roleLabel: "Patient",
+    email: "mudit@gmail.com",
+    role: "patient" as Role,
+  },
+  {
     label: "Karthik Iyer",
     roleLabel: "Patient",
     email: "karthik.iyer@example.in",
     role: "patient" as Role,
   },
   {
-    label: "Ananya Sharma",
+    label: "Devansh Gupta",
     roleLabel: "Patient",
-    email: "ananya.sharma@example.in",
+    email: "devansh.gupta@example.in",
     role: "patient" as Role,
   },
   {
+    label: "Meera Nair",
+    roleLabel: "Patient",
+    email: "meera.nair@example.in",
+    role: "patient" as Role,
+  },
+  {
+    label: "Dr. Rohan Mehta",
+    roleLabel: "Doctor",
+    email: "rohan.mehta@example.in",
+    role: "doctor" as Role,
+  },
+  {
     label: "Dr. Nisha Kapoor",
-    roleLabel: "Doctor · Fortis",
+    roleLabel: "Doctor",
     email: "nisha.kapoor@example.in",
     role: "doctor" as Role,
   },
   {
-    label: "Dr. Rohan Mehta",
-    roleLabel: "Doctor · Apollo",
-    email: "rohan.mehta@example.in",
+    label: "Dr. Vikram Sharma",
+    roleLabel: "Doctor",
+    email: "vikram.sharma@example.in",
     role: "doctor" as Role,
   },
   {
@@ -354,10 +372,27 @@ export function AuthCard({ hospitals }: AuthCardProps) {
             </button>
 
             <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid var(--line)" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, flexWrap: "wrap", gap: 6 }}>
-                <span className="muted" style={{ fontSize: "var(--fs-xs)", fontWeight: 600 }}>
-                  ⚡ 1-CLICK INSTANT DEMO LOGIN
-                </span>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, flexWrap: "wrap", gap: 6 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: "var(--fs-xs)", fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: "var(--text-primary)" }}>
+                    Demo Logins
+                  </span>
+                  <span
+                    style={{
+                      fontSize: "10px",
+                      fontWeight: 600,
+                      padding: "1px 6px",
+                      borderRadius: "4px",
+                      background: "rgba(59, 130, 246, 0.15)",
+                      color: "var(--blue-400)",
+                      border: "1px solid rgba(59, 130, 246, 0.3)",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.04em",
+                    }}
+                  >
+                    1-Click
+                  </span>
+                </div>
                 <span className="muted" style={{ fontSize: "var(--fs-xs)" }}>
                   Password: <code>{DEMO_PASSWORD}</code>
                 </span>
@@ -372,15 +407,32 @@ export function AuthCard({ hospitals }: AuthCardProps) {
                       disabled={loading}
                       className="persona-pill"
                       onClick={() => quickLoginPersona(p)}
-                      title={`Click to immediately sign in as ${p.label}`}
+                      title={`Click to immediately sign in as ${p.label} (${p.roleLabel})`}
                       style={{
-                        background: isCurrent ? "var(--blue-200)" : undefined,
-                        borderColor: isCurrent ? "var(--blue-600)" : undefined,
+                        background: isCurrent ? "rgba(59, 130, 246, 0.18)" : undefined,
+                        borderColor: isCurrent ? "var(--blue-500)" : undefined,
                       }}
                     >
-                      <Sparkles size={13} aria-hidden="true" style={{ color: "var(--blue-600)" }} />
-                      <strong>{p.label}</strong> ({p.roleLabel})
-                      {isCurrent ? " · Signing in..." : ""}
+                      <span style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, overflow: "hidden" }}>
+                        <Sparkles size={12} aria-hidden="true" style={{ color: "var(--blue-500)", flexShrink: 0 }} />
+                        <span className="truncate" style={{ fontWeight: 600 }}>
+                          {p.label}
+                        </span>
+                      </span>
+                      <span
+                        style={{
+                          fontSize: "11px",
+                          padding: "1px 6px",
+                          borderRadius: "4px",
+                          background: isCurrent ? "rgba(59, 130, 246, 0.3)" : "var(--bg-subtle, rgba(255, 255, 255, 0.05))",
+                          color: isCurrent ? "var(--blue-300)" : "var(--text-muted, #888)",
+                          border: isCurrent ? "1px solid var(--blue-400)" : "1px solid var(--border, #333)",
+                          flexShrink: 0,
+                          fontWeight: 500,
+                        }}
+                      >
+                        {isCurrent ? "Signing in..." : p.roleLabel}
+                      </span>
                     </button>
                   );
                 })}

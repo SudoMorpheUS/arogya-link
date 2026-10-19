@@ -3,11 +3,17 @@ import { CubeMark, TowerLoader } from "@/components/TowerLoader";
 import { AuthCard } from "@/components/AuthCard";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { getSession } from "@/lib/session";
+import { api } from "@/lib/api";
 import { listHospitals } from "@/lib/store";
 
 export default async function Landing() {
   if (await getSession()) redirect("/dashboard");
-  const hospitals = listHospitals();
+  let hospitals: any[] = [];
+  try {
+    hospitals = await api.getHospitals();
+  } catch {
+    hospitals = listHospitals();
+  }
 
   return (
     <main className="landing">
@@ -34,10 +40,6 @@ export default async function Landing() {
       <section aria-label="Authentication">
         <AuthCard hospitals={hospitals} />
       </section>
-
-      <p className="muted" style={{ fontSize: "var(--fs-sm)", textAlign: "center", marginTop: 8 }}>
-        Secure healthcare access powered by Firebase Authentication.
-      </p>
     </main>
   );
 }

@@ -38,7 +38,17 @@ export function LoaderScreen({ caption = "Loading" }: { caption?: string }) {
 /** Static three-face cube in the loader's palette; used as the brand mark. */
 export function CubeMark({ size = 28 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      style={{
+        flexShrink: 0,
+        filter: "drop-shadow(0 2px 6px rgba(59, 130, 246, 0.35))",
+        verticalAlign: "middle",
+      }}
+    >
       <polygon points="12,1.5 22,7 12,12.5 2,7" fill="var(--loader-top)" />
       <polygon points="2,7 12,12.5 12,23.5 2,18" fill="var(--loader-left)" />
       <polygon points="22,7 12,12.5 12,23.5 22,18" fill="var(--loader-right)" />

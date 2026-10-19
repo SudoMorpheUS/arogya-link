@@ -84,10 +84,12 @@ class DoctorBase(ORMBase):
     full_name: str = Field(max_length=100)
     specialization: str = Field(max_length=80)
     license_number: str = Field(max_length=30)
+    email: EmailStr | None = None
+    contact_number: str | None = None
 
 
 class DoctorCreate(DoctorBase):
-    doctor_id: str = Field(max_length=15)
+    doctor_id: str | None = Field(default=None, max_length=15)
 
 
 class DoctorUpdate(ORMBase):
@@ -95,6 +97,8 @@ class DoctorUpdate(ORMBase):
     full_name: str | None = Field(default=None, max_length=100)
     specialization: str | None = Field(default=None, max_length=80)
     license_number: str | None = Field(default=None, max_length=30)
+    email: EmailStr | None = None
+    contact_number: str | None = None
 
 
 class DoctorRead(DoctorBase):

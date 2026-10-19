@@ -23,27 +23,81 @@ export default async function ChartPage({
   const session = await requireSession(["doctor"]);
   const { id } = await params;
   const { saved, error } = await searchParams;
-  const patient = store.getPatient(id);
+  let patient = store.getPatient(id);
+  if (!patient) {
+    try {
+      const p = await api.getPatient(id);
+      if (p) {
+        patient = {
+          patient_id: p.patient_id,
+          full_name: p.full_name,
+          date_of_birth: p.date_of_birth,
+          gender: p.gender as any,
+          blood_group: p.blood_group as any,
+          contact_number: p.contact_number,
+          email: p.email,
+        };
+      }
+    } catch {}
+  }
   if (!patient) notFound();
 
-  const chart = store.openChart(id, session.id!);
-  const hospital = store.getHospital(store.getDoctor(session.id!)!.hospital_id)!;
+  let hasConsent = false;
+  try {
+    const res = await api.checkConsent(id, session.id!);
+    hasConsent = Boolean(res?.has_consent);
+  } catch (err) {
+    console.warn("api.checkConsent failed, checking store:", err);
+    hasConsent = store.hasConsent(id, session.id!);
+  }
+
+  let hasEmergency = false;
+  try {
+    const emRes = await api.checkEmergencyAccess(id, session.id!);
+    hasEmergency = Boolean(emRes?.has_emergency_access);
+  } catch {
+    hasEmergency = store.hasEmergencyAccess(id, session.id!);
+  }
+
+  const isAllowed = hasConsent || hasEmergency;
+  const accessLevel: "consent" | "emergency" | "none" = hasConsent
+    ? "consent"
+    : hasEmergency
+      ? "emergency"
+      : "none";
+
+  let doctor = session.id ? store.getDoctor(session.id) : null;
+  let hospitalName = "";
+  if (!doctor && session.id) {
+    try {
+      const d = await api.getDoctor(session.id);
+      if (d) {
+        doctor = d as any;
+        hospitalName = d.hospital_name || "";
+      }
+    } catch {}
+  }
+  if (!hospitalName && doctor) {
+    hospitalName = store.getHospital(doctor.hospital_id)?.hospital_name || "Hospital";
+  }
   const today = store.today();
 
   try {
-    if (!chart.ok) {
+    if (!isAllowed) {
       await api.createAuditEntry({
         patient_id: id,
         doctor_id: session.id,
         action: "DENIED",
-        details: `Access denied: no active consent for ${hospital?.hospital_name ?? "hospital"}`,
+        details: `Access denied: no active consent for ${hospitalName || "hospital"}`,
       });
-    } else if (chart.level === "consent") {
+    } else {
       await api.createAuditEntry({
         patient_id: id,
         doctor_id: session.id,
-        action: "READ",
-        details: `Opened unified chart at ${hospital?.hospital_name ?? "hospital"}`,
+        action: accessLevel === "emergency" ? "EMERGENCY_READ" : "READ",
+        details: accessLevel === "emergency"
+          ? `Emergency override access at ${hospitalName || "hospital"}`
+          : `Opened unified chart at ${hospitalName || "hospital"}`,
       });
     }
   } catch {}
@@ -69,12 +123,12 @@ export default async function ChartPage({
     </section>
   );
 
-  if (!chart.ok) {
+  if (!isAllowed) {
     return (
       <div className="page">
         <PageHeader title="Patient chart" subtitle="Consent required" />
         {header}
-        <AttentionBanner title={`Access blocked: no active consent for ${hospital.hospital_name}`}>
+        <AttentionBanner title={`Access blocked: no active consent for ${hospitalName || "hospital"}`}>
           The patient has not allowed you or your hospital to view their history. This attempt was recorded in the audit
           log. Ask the patient to grant access from their Consent page.
         </AttentionBanner>
@@ -99,8 +153,49 @@ export default async function ChartPage({
     );
   }
 
-  const labs = store.labsOf(id).slice(0, 8);
-  const critical = labs.find((l) => assessLab(l.test_name, l.result).flag === "critical");
+  let timelineEntries: any[] = store.timeline(id);
+  try {
+    const apiTimeline = await api.getTimeline(id);
+    if (apiTimeline && apiTimeline.length > 0) {
+      timelineEntries = apiTimeline.map((t) => ({
+        visit_id: t.visit_id,
+        patient_id: id,
+        hospital_id: t.hospital.hospital_id,
+        hospital_name: t.hospital.hospital_name,
+        doctor_id: t.doctor.doctor_id,
+        doctor_name: t.doctor.full_name,
+        visit_date: t.visit_date,
+        visit_type: t.visit_type,
+        chief_complaint: t.chief_complaint,
+        diagnoses: t.diagnoses,
+        prescriptions: t.prescriptions,
+        labs: t.lab_tests,
+      }));
+    }
+  } catch {}
+
+  let recentLabsList: any[] = store.recentLabs(id);
+  try {
+    const apiLabs = await api.getPatientLabs(id);
+    if (apiLabs && apiLabs.length > 0) {
+      const now = new Date();
+      recentLabsList = apiLabs.map((l) => {
+        const testD = l.test_date ? new Date(l.test_date) : now;
+        const diffDays = Math.max(0, Math.floor((now.getTime() - testD.getTime()) / (1000 * 60 * 60 * 24)));
+        return {
+          lab_test_id: l.lab_test_id,
+          test_name: l.test_name,
+          result: l.result,
+          unit: l.unit,
+          test_date: l.test_date,
+          hospital_name: l.hospital_name || hospitalName || "Hospital",
+          days_ago: diffDays,
+        };
+      });
+    }
+  } catch {}
+
+  const critical = recentLabsList.find((l) => assessLab(l.test_name, l.result).flag === "critical");
 
   return (
     <div className="page">
@@ -116,9 +211,9 @@ export default async function ChartPage({
       {saved ? <Notice>Visit recorded and written to the audit log.</Notice> : null}
       {header}
       <VisibilityNote>
-        {chart.level === "emergency"
+        {accessLevel === "emergency"
           ? "You are viewing this through an audited emergency override. The patient will see it in their access history."
-          : `Visible to you because the patient allowed ${hospital.hospital_name} or you. They can revoke this at any time.`}
+          : `Visible to you because the patient allowed ${hospitalName} or you. They can revoke this at any time.`}
       </VisibilityNote>
 
       {critical ? (
@@ -134,12 +229,12 @@ export default async function ChartPage({
             Last 90 days, any hospital
           </span>
         </div>
-        {chart.recentLabs.length === 0 ? (
+        {recentLabsList.length === 0 ? (
           <Empty>No lab results in the last 90 days, so any test you order is new.</Empty>
         ) : (
           <DataTable
             caption="Lab results from the last 90 days"
-            rows={chart.recentLabs}
+            rows={recentLabsList}
             rowKey={(l) => l.lab_test_id}
             rowClass={(l) => (assessLab(l.test_name, l.result).flag === "critical" ? "row-critical" : undefined)}
             columns={[
@@ -161,7 +256,7 @@ export default async function ChartPage({
 
       <section className="stack-sm" aria-labelledby="history-title">
         <h2 id="history-title">Visit history</h2>
-        <Timeline entries={chart.timeline} />
+        <Timeline entries={timelineEntries} />
       </section>
     </div>
   );

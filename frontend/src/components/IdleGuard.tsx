@@ -35,13 +35,22 @@ export function IdleGuard() {
   if (!locked) return null;
   return (
     <div className="idle-lock" role="dialog" aria-modal="true" aria-labelledby="idle-title">
-      <div className="card stack-sm" style={{ maxWidth: 420, textAlign: "center", justifyItems: "center" }}>
-        <Lock size={28} strokeWidth={1.75} aria-hidden="true" style={{ color: "var(--blue-600)" }} />
-        <h2 id="idle-title">Screen hidden for privacy</h2>
-        <p className="muted">You have been inactive for two minutes. Patient details are blurred until you continue.</p>
+      <div className="idle-lock-card">
+        <div className="idle-lock-icon-wrap">
+          <Lock size={26} strokeWidth={2} aria-hidden="true" />
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <h2 id="idle-title" style={{ fontSize: "var(--fs-xl, 1.25rem)", fontWeight: 700, margin: 0 }}>
+            Screen hidden for privacy
+          </h2>
+          <p className="muted" style={{ fontSize: "var(--fs-sm, 0.875rem)", lineHeight: 1.5, margin: 0 }}>
+            You have been inactive for two minutes. Patient medical details are blurred until you resume your session.
+          </p>
+        </div>
         <button
           ref={button}
           className="btn"
+          style={{ width: "100%", marginTop: 8 }}
           onClick={() => {
             setLocked(false);
             timer.current = setTimeout(() => setLocked(true), IDLE_MS);

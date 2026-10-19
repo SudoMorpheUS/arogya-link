@@ -55,19 +55,37 @@ export async function syncFirebaseUserSession(
       id = null;
     } else if (role === "doctor") {
       if (!id) {
+        let hospId = payload.hospitalId || "HSP1001";
+        if (hospId === "HSP-01") hospId = "HSP1001";
+        else if (hospId === "HSP-02") hospId = "HSP1002";
+        else if (hospId === "HSP-03") hospId = "HSP1005";
+
+        const docName = name.startsWith("Dr.") || name.startsWith("Dr ") ? name : `Dr. ${name}`;
         try {
           const doc = await api.createDoctor({
             doctor_id: `DOC-${Date.now().toString().slice(-4)}`,
-            hospital_id: payload.hospitalId || "HSP1001",
-            full_name: name,
+            hospital_id: hospId,
+            full_name: docName,
             specialization: payload.specialization || "General Medicine",
             license_number: payload.licenseNumber || `LIC-${Date.now().toString().slice(-6)}`,
-          });
+            email,
+            contact_number: payload.contactNumber || "9800000000",
+          } as any);
           id = doc.doctor_id;
+          name = docName;
+          try {
+            store.registerDoctor({
+              full_name: docName,
+              hospital_id: hospId,
+              specialization: payload.specialization || "General Medicine",
+              license_number: doc.license_number || payload.licenseNumber || "LIC-999999",
+              email,
+            });
+          } catch {}
         } catch {
           id = store.registerDoctor({
-            full_name: name,
-            hospital_id: payload.hospitalId || "HSP1001",
+            full_name: docName,
+            hospital_id: hospId,
             specialization: payload.specialization || "General Medicine",
             license_number: payload.licenseNumber || "LIC-999999",
             email,
@@ -237,6 +255,7 @@ export async function recordVisitAction(_prev: FormState, formData: FormData): P
   if (labTests.some((l) => !l.test_name)) return { error: "Each lab result needs a test name." };
 
   try {
+    let apiSuccess = false;
     // 1. Post to FastAPI backend -> PostgreSQL inserts and fires tr_visit_audit trigger
     try {
       await api.createVisit({
@@ -248,20 +267,27 @@ export async function recordVisitAction(_prev: FormState, formData: FormData): P
         prescriptions,
         lab_tests: labTests,
       });
+      apiSuccess = true;
     } catch (apiErr) {
       console.warn("FastAPI createVisit error:", apiErr);
     }
 
-    // 2. Synchronize local store
-    store.recordVisit({
-      patient_id,
-      doctor_id: session.id!,
-      visit_type: text(formData, "visit_type"),
-      chief_complaint: text(formData, "chief_complaint"),
-      diagnoses,
-      prescriptions,
-      labTests,
-    });
+    // 2. Synchronize local store (non-fatal if API succeeded)
+    try {
+      store.recordVisit({
+        patient_id,
+        doctor_id: session.id!,
+        visit_type: text(formData, "visit_type"),
+        chief_complaint: text(formData, "chief_complaint"),
+        diagnoses,
+        prescriptions,
+        labTests,
+      });
+    } catch (storeErr) {
+      if (!apiSuccess) {
+        throw storeErr;
+      }
+    }
   } catch (e) {
     return { error: (e as Error).message };
   }

@@ -37,22 +37,41 @@ export async function POST(request: Request) {
         store.registerAdmin({ email: rawEmail, name });
         id = null;
       } else if (role === "doctor") {
+        let hospId = body.hospitalId || "HSP1001";
+        if (hospId === "HSP-01") hospId = "HSP1001";
+        else if (hospId === "HSP-02") hospId = "HSP1002";
+        else if (hospId === "HSP-03") hospId = "HSP1005";
+
+        const docName = name.startsWith("Dr.") || name.startsWith("Dr ") ? name : `Dr. ${name}`;
         try {
           const doc = await api.createDoctor({
             doctor_id: `DOC-${Date.now().toString().slice(-4)}`,
-            hospital_id: body.hospitalId || "HSP1001",
-            full_name: name,
+            hospital_id: hospId,
+            full_name: docName,
             specialization: body.specialization || "General Medicine",
             license_number: body.licenseNumber || `LIC-${Date.now().toString().slice(-6)}`,
-          });
+            email: rawEmail,
+            contact_number: body.contactNumber || "9800000000",
+          } as any);
           id = doc.doctor_id;
-        } catch {
+          name = docName;
+          try {
+            store.registerDoctor({
+              full_name: docName,
+              hospital_id: hospId,
+              specialization: body.specialization || "General Medicine",
+              license_number: doc.license_number || body.licenseNumber || "MCI-NEW-001",
+              email: rawEmail,
+            });
+          } catch {}
+        } catch (docErr) {
+          console.warn("api.createDoctor failed, falling back to local store:", docErr);
           const doc = store.findDoctorByEmail(rawEmail);
           id = doc
             ? doc.doctor_id
             : store.registerDoctor({
-                full_name: name,
-                hospital_id: body.hospitalId || "HSP1001",
+                full_name: docName,
+                hospital_id: hospId,
                 specialization: body.specialization || "General Medicine",
                 license_number: body.licenseNumber || "MCI-NEW-001",
                 email: rawEmail,
