@@ -38,17 +38,31 @@ export default async function DashboardPage({ searchParams }: { searchParams: Se
 
 // ---------------------------------------------------------------- patient
 
-function PatientDashboard({ session, showAll }: { session: Session; showAll: boolean }) {
+async function PatientDashboard({ session, showAll }: { session: Session; showAll: boolean }) {
   const id = session.id!;
   const patient = store.getPatient(id)!;
   const entries = store.timeline(id);
   const today = store.today();
-  const consents = store
+  let consents = store
     .consentsOf(id)
     .filter((c) => c.status === "Active" && c.start_date <= today && (!c.end_date || c.end_date >= today));
+  try {
+    const apiConsents = await api.getConsents(id);
+    if (apiConsents) {
+      consents = apiConsents.filter(
+        (c) => c.status === "Active" && c.start_date <= today && (!c.end_date || c.end_date >= today),
+      ) as any;
+    }
+  } catch {}
   const labs = store.labsOf(id);
   const meds = store.activePrescriptions(id);
-  const events = store.auditForPatient(id).filter((a) => ["READ", "EMERGENCY_READ", "DENIED"].includes(a.action)).length;
+  let events = store.auditForPatient(id).filter((a) => ["READ", "EMERGENCY_READ", "DENIED"].includes(a.action)).length;
+  try {
+    const apiLogs = await api.getAuditLogs(id, undefined, 500);
+    if (apiLogs) {
+      events = apiLogs.filter((a) => ["READ", "EMERGENCY_READ", "DENIED"].includes(a.action)).length;
+    }
+  } catch {}
   const team = [...new Map(entries.map((e) => [e.doctor_id, e])).values()];
   const last = entries[0];
 

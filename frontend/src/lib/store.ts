@@ -279,17 +279,38 @@ export function grantConsent(input: {
 }
 
 export function revokeConsent(consentId: number, patientId: string): void {
-  const c = db().consents.find((x) => x.consent_id === consentId && x.patient_id === patientId);
-  if (!c) throw new Error("Consent not found");
-  if (c.status === "Revoked") return;
-  c.status = "Revoked";
-  c.end_date = today() < c.start_date ? c.start_date : today();
-  audit(
-    patientId,
-    null,
-    "CONSENT_CHANGE",
-    `consent_id=${c.consent_id} status=Revoked hospital=${c.hospital_id ?? "—"} doctor=${c.doctor_id ?? "—"}`,
-  );
+  const s = db();
+  const c = s.consents.find((x) => x.consent_id === consentId && x.patient_id === patientId);
+  if (!c) return;
+  if (c.status !== "Revoked") {
+    c.status = "Revoked";
+    c.end_date = today() < c.start_date ? c.start_date : today();
+    audit(
+      patientId,
+      c.doctor_id,
+      "CONSENT_CHANGE",
+      `consent_id=${c.consent_id} status=Revoked hospital=${c.hospital_id ?? "—"} doctor=${c.doctor_id ?? "—"}`,
+    );
+  }
+
+  // If revoking hospital consent, cascade revoke active doctor consents at that hospital
+  if (c.hospital_id) {
+    const docIds = new Set(s.doctors.filter((d) => d.hospital_id === c.hospital_id).map((d) => d.doctor_id));
+    for (const item of s.consents) {
+      if (item.patient_id === patientId && item.status === "Active") {
+        if (item.hospital_id === c.hospital_id || (item.doctor_id && docIds.has(item.doctor_id))) {
+          item.status = "Revoked";
+          item.end_date = today() < item.start_date ? item.start_date : today();
+          audit(
+            patientId,
+            item.doctor_id,
+            "CONSENT_CHANGE",
+            `consent_id=${item.consent_id} status=Revoked hospital=${item.hospital_id ?? "—"} doctor=${item.doctor_id ?? "—"} (hospital revoked)`,
+          );
+        }
+      }
+    }
+  }
 }
 
 // ---------- access (chart reads are always audited) ----------

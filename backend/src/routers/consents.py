@@ -241,8 +241,9 @@ def revoke_consent(consent_id: int, payload: dict[str, Any] | None = None, db: S
     if not consent:
         raise HTTPException(status_code=404, detail="Consent not found")
 
+    today = datetime.date.today()
     consent.status = "Revoked"
-    consent.end_date = datetime.date.today()
+    consent.end_date = today
     try:
         audit = AuditLog(
             patient_id=consent.patient_id,
@@ -254,6 +255,56 @@ def revoke_consent(consent_id: int, payload: dict[str, Any] | None = None, db: S
         db.add(audit)
     except Exception as audit_err:
         print(f"Warning: failed to write revoke audit log: {audit_err}")
+
+    # If revoking a hospital consent, also cascade revoke any active consents for doctors at that hospital
+    if consent.hospital_id:
+        # 1. Any other active consent for this exact hospital
+        other_hosp_consents = db.scalars(
+            select(Consent).where(
+                Consent.patient_id == consent.patient_id,
+                Consent.hospital_id == consent.hospital_id,
+                Consent.consent_id != consent.consent_id,
+                Consent.status == "Active",
+            )
+        ).all()
+        for ohc in other_hosp_consents:
+            ohc.status = "Revoked"
+            ohc.end_date = today
+            try:
+                db.add(AuditLog(
+                    patient_id=ohc.patient_id,
+                    doctor_id=None,
+                    action="CONSENT_CHANGE",
+                    action_time=datetime.datetime.now(),
+                    details=f"consent_id={ohc.consent_id} status=Revoked hospital={consent.hospital_id} (hospital revoked)",
+                ))
+            except Exception:
+                pass
+
+        # 2. Any active consent for doctors practicing at this hospital
+        doc_ids = db.scalars(select(Doctor.doctor_id).where(Doctor.hospital_id == consent.hospital_id)).all()
+        if doc_ids:
+            doctor_consents = db.scalars(
+                select(Consent).where(
+                    Consent.patient_id == consent.patient_id,
+                    Consent.doctor_id.in_(doc_ids),
+                    Consent.status == "Active",
+                )
+            ).all()
+            for dc in doctor_consents:
+                dc.status = "Revoked"
+                dc.end_date = today
+                try:
+                    db.add(AuditLog(
+                        patient_id=dc.patient_id,
+                        doctor_id=dc.doctor_id,
+                        action="CONSENT_CHANGE",
+                        action_time=datetime.datetime.now(),
+                        details=f"consent_id={dc.consent_id} status=Revoked hospital={consent.hospital_id} doctor={dc.doctor_id} (hospital revoked)",
+                    ))
+                except Exception:
+                    pass
+
     db.commit()
     return {"consent_id": consent.consent_id, "status": "Revoked"}
 

@@ -96,7 +96,7 @@ export function GrantConsentForm({
       <input type="hidden" name="target" value={selected?.value || ""} required />
 
       <div className="form-row">
-        <div className="field field--wide" ref={containerRef} style={{ position: "relative" }}>
+        <div className="field field--wide" ref={containerRef} style={{ position: "relative", width: "100%", maxWidth: "100%" }}>
           <label id="target-label" style={{ fontWeight: 600, color: "var(--ink-900)" }}>
             Allow access for
           </label>
@@ -108,23 +108,27 @@ export function GrantConsentForm({
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
-                padding: "10px 14px",
+                padding: "8px 12px",
                 border: "2px solid var(--ink-900)",
                 borderRadius: "var(--r-input, 6px)",
                 background: "var(--white)",
-                gap: "12px",
+                gap: "10px",
                 minHeight: "48px",
+                width: "100%",
+                maxWidth: "100%",
+                boxSizing: "border-box",
+                overflow: "hidden",
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0, flex: 1, overflow: "hidden" }}>
                 {selected.type === "hospital" || selected.value.startsWith("hospital:") ? (
                   <Building2 size={20} style={{ color: "var(--blue-600)", flexShrink: 0 }} />
                 ) : (
                   <Stethoscope size={20} style={{ color: "var(--blue-600)", flexShrink: 0 }} />
                 )}
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                    <strong style={{ fontSize: "var(--fs-sm)", color: "var(--ink-900)" }}>
+                <div style={{ minWidth: 0, flex: 1, overflow: "hidden" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", minWidth: 0 }}>
+                    <strong style={{ fontSize: "var(--fs-sm)", color: "var(--ink-900)", wordBreak: "break-word" }}>
                       {selected.label}
                     </strong>
                     <span
@@ -138,13 +142,25 @@ export function GrantConsentForm({
                         fontWeight: 600,
                         textTransform: "uppercase",
                         letterSpacing: "0.5px",
+                        flexShrink: 0,
                       }}
                     >
                       {selected.type === "hospital" || selected.value.startsWith("hospital:") ? "Hospital" : "Doctor"}
                     </span>
                   </div>
                   {selected.subtitle && (
-                    <div className="muted truncate" style={{ fontSize: "var(--fs-xs)", marginTop: "2px" }}>
+                    <div
+                      className="muted truncate"
+                      style={{
+                        fontSize: "var(--fs-xs)",
+                        marginTop: "2px",
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        maxWidth: "100%",
+                      }}
+                      title={selected.subtitle}
+                    >
                       {selected.subtitle}
                     </div>
                   )}
@@ -163,6 +179,7 @@ export function GrantConsentForm({
                   fontSize: "var(--fs-xs)",
                   flexShrink: 0,
                   cursor: "pointer",
+                  whiteSpace: "nowrap",
                 }}
                 title="Change selected hospital or doctor"
               >

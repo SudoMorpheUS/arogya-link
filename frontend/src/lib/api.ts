@@ -90,8 +90,16 @@ export interface ApiConsent {
   patient_name?: string;
   hospital_id: string | null;
   hospital_name?: string | null;
+  hospital_address?: string | null;
   doctor_id: string | null;
   doctor_name?: string | null;
+  doctor_specialization?: string | null;
+  doctor_hospital_name?: string | null;
+  doctor_hospital_address?: string | null;
+  resolved_hospital_name?: string | null;
+  city?: string;
+  state?: string;
+  location?: string;
   start_date: string;
   end_date: string | null;
   status: "Active" | "Revoked";

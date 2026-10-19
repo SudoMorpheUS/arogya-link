@@ -158,6 +158,7 @@ export async function grantConsentAction(_prev: FormState, formData: FormData): 
   } catch (e) {
     return { error: (e as Error).message };
   }
+  revalidatePath("/", "layout");
   revalidatePath("/consents");
   revalidatePath("/audit");
   revalidatePath("/dashboard");
@@ -175,6 +176,7 @@ export async function revokeConsentAction(formData: FormData): Promise<void> {
   try {
     store.revokeConsent(consentId, session.id!);
   } catch {}
+  revalidatePath("/", "layout");
   revalidatePath("/consents");
   revalidatePath("/audit");
   revalidatePath("/dashboard");

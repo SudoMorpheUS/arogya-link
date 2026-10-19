@@ -11,6 +11,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { attentionFor, type AttentionItem } from "@/lib/attention";
 import { formatDate, formatDateTime, maskId } from "@/lib/format";
 import { requireSession } from "@/lib/session";
+import { api } from "@/lib/api";
 import * as store from "@/lib/store";
 import type { Session } from "@/lib/types";
 
@@ -38,13 +39,65 @@ function navFor(session: Session, items: AttentionItem[]): NavItem[] {
   ];
 }
 
-function Aside({ session }: { session: Session }) {
+async function Aside({ session }: { session: Session }) {
   if (session.role === "patient") {
     const today = store.today();
-    const active = store
-      .consentsOf(session.id!)
-      .filter((c) => c.status === "Active" && c.start_date <= today && (!c.end_date || c.end_date >= today));
-    const events = store.auditForPatient(session.id!).filter((e) => ["READ", "DENIED", "EMERGENCY_READ"].includes(e.action)).slice(0, 5);
+    let active: { consent_id: number; target_name: string; end_date: string | null }[] = [];
+    try {
+      const apiConsents = await api.getConsents(session.id!);
+      if (apiConsents) {
+        active = apiConsents
+          .filter((c) => c.status === "Active" && c.start_date <= today && (!c.end_date || c.end_date >= today))
+          .map((c) => {
+            const docName = c.doctor_name || (c.doctor_id ? store.getDoctor(c.doctor_id)?.full_name : null);
+            const hospName = c.hospital_name || c.resolved_hospital_name || (c.hospital_id ? store.getHospital(c.hospital_id)?.hospital_name : null);
+            return {
+              consent_id: c.consent_id,
+              target_name: docName || hospName || "Authorized entity",
+              end_date: c.end_date,
+            };
+          });
+      }
+    } catch {
+      active = store
+        .consentsOf(session.id!)
+        .filter((c) => c.status === "Active" && c.start_date <= today && (!c.end_date || c.end_date >= today))
+        .map((c) => ({
+          consent_id: c.consent_id,
+          target_name: c.doctor_id
+            ? (store.getDoctor(c.doctor_id)?.full_name ?? c.doctor_id)
+            : (store.getHospital(c.hospital_id!)?.hospital_name ?? c.hospital_id!),
+          end_date: c.end_date,
+        }));
+    }
+
+    let events: { log_id: number; doctor_name: string | null; action: string; action_time: string }[] = [];
+    try {
+      const apiLogs = await api.getAuditLogs(session.id!, undefined, 20);
+      if (apiLogs) {
+        events = apiLogs
+          .filter((e) => ["READ", "DENIED", "EMERGENCY_READ"].includes(e.action))
+          .slice(0, 5)
+          .map((e) => ({
+            log_id: e.log_id,
+            doctor_name: e.doctor_name,
+            action: e.action,
+            action_time: e.action_time,
+          }));
+      }
+    } catch {
+      events = store
+        .auditForPatient(session.id!)
+        .filter((e) => ["READ", "DENIED", "EMERGENCY_READ"].includes(e.action))
+        .slice(0, 5)
+        .map((e) => ({
+          log_id: e.log_id,
+          doctor_name: e.doctor_name,
+          action: e.action,
+          action_time: e.action_time,
+        }));
+    }
+
     return (
       <div className="stack">
         <section aria-labelledby="aside-who">
@@ -57,8 +110,8 @@ function Aside({ session }: { session: Session }) {
             <ul className="list">
               {active.slice(0, 6).map((c) => (
                 <li key={c.consent_id}>
-                  <span className="truncate" title={c.doctor_id ? store.getDoctor(c.doctor_id)?.full_name : store.getHospital(c.hospital_id!)?.hospital_name}>
-                    {c.doctor_id ? store.getDoctor(c.doctor_id)?.full_name : store.getHospital(c.hospital_id!)?.hospital_name}
+                  <span className="truncate" title={c.target_name}>
+                    {c.target_name}
                   </span>
                   <span className="muted" style={{ fontSize: "var(--fs-xs)" }}>
                     {c.end_date ? `Until ${formatDate(c.end_date)}` : "No end date"}
@@ -94,10 +147,43 @@ function Aside({ session }: { session: Session }) {
     );
   }
 
-  const rows =
-    session.role === "doctor"
+  let rows: { log_id: number; patient_name: string; patient_id: string; action: string; action_time: string }[] = [];
+  try {
+    if (session.role === "doctor") {
+      const apiLogs = await api.getAuditLogs(undefined, session.id!, 20);
+      rows = (apiLogs || []).slice(0, 6).map((e) => ({
+        log_id: e.log_id,
+        patient_name: e.patient_name || e.patient_id,
+        patient_id: e.patient_id,
+        action: e.action,
+        action_time: e.action_time,
+      }));
+    } else {
+      const apiLogs = await api.getAuditLogs(undefined, undefined, 50);
+      rows = (apiLogs || [])
+        .filter((e) => e.action === "DENIED" || e.action === "EMERGENCY_READ")
+        .slice(0, 6)
+        .map((e) => ({
+          log_id: e.log_id,
+          patient_name: e.patient_name || e.patient_id,
+          patient_id: e.patient_id,
+          action: e.action,
+          action_time: e.action_time,
+        }));
+    }
+  } catch {
+    rows = (session.role === "doctor"
       ? store.auditForDoctor(session.id!).slice(0, 6)
-      : store.allAudit().filter((e) => e.action === "DENIED" || e.action === "EMERGENCY_READ").slice(0, 6);
+      : store.allAudit().filter((e) => e.action === "DENIED" || e.action === "EMERGENCY_READ").slice(0, 6)
+    ).map((e) => ({
+      log_id: e.log_id,
+      patient_name: e.patient_name,
+      patient_id: e.patient_id,
+      action: e.action,
+      action_time: e.action_time,
+    }));
+  }
+
   return (
     <section aria-labelledby="aside-activity">
       <h2 id="aside-activity" className="card-head" style={{ fontSize: "var(--fs-md)" }}>
@@ -128,8 +214,20 @@ function Aside({ session }: { session: Session }) {
 
 export default async function PortalLayout({ children }: { children: ReactNode }) {
   const session = await requireSession();
-  const doctor = session.role === "doctor" ? store.getDoctor(session.id!) : null;
-  const patient = session.role === "patient" ? store.getPatient(session.id!) : null;
+  let doctor = session.role === "doctor" ? store.getDoctor(session.id!) : null;
+  let patient = session.role === "patient" ? store.getPatient(session.id!) : null;
+  if (session.role === "doctor" && !doctor && session.id) {
+    try {
+      const d = await api.getDoctor(session.id);
+      if (d) doctor = d as any;
+    } catch {}
+  }
+  if (session.role === "patient" && !patient && session.id) {
+    try {
+      const p = await api.getPatient(session.id);
+      if (p) patient = p as any;
+    } catch {}
+  }
   const name = doctor?.full_name ?? patient?.full_name ?? "Administrator";
   const where = doctor ? (store.getHospital(doctor.hospital_id)?.hospital_name ?? "") : patient ? maskId(patient.patient_id) : "All hospitals";
 
