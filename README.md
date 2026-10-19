@@ -1,6 +1,5 @@
 # AarogyaLink (आरोग्यLink)
  
-> **Team:** Archit (25BRS1030) 
 
 ---
 
