@@ -11,141 +11,174 @@
 **AarogyaLink** is a unified digital health data exchange designed to solve the critical problem of fragmented medical histories across disparate hospital networks in India. 
 
 Rather than locking patient data in proprietary hospital silos, AarogyaLink provides:
-1. **One Unified Longitudinal Health Record:** A patient's complete history (diagnoses, prescriptions, and lab tests) travels with them across participating hospitals (e.g., Apollo Hospitals Chennai, Fortis Hospital Bengaluru, AIIMS New Delhi).
-2. **Patient-Governed Dynamic Consent:** Patients have sole ownership over who can view their clinical chart, granting broad facility-level or narrow doctor-specific access with customizable expiry dates.
-3. **Audited "Break-Glass" Emergency Access:** In life-threatening emergencies, doctors can bypass standard consent by providing mandatory clinical justification, which is instantly logged to a tamper-evident audit ledger.
+1. **One Unified Longitudinal Health Record:** A patient's complete medical history (diagnoses, prescriptions, and lab investigations) travels with them across participating hospitals (e.g., Apollo Hospitals, Fortis Healthcare, AIIMS, Medanta).
+2. **Patient-Governed Dynamic Consent:** Patients have sole ownership over who can view their clinical chart, granting broad facility-level or narrow doctor-specific access with customizable expiry dates, medical specializations, and geographic locations (city/state).
+3. **Audited "Break-Glass" Emergency Access:** In life-threatening situations, physicians can bypass standard consent by providing mandatory clinical justification, which is instantly logged to a tamper-evident audit ledger.
 4. **Cross-Hospital Duplicate Lab Test Detection:** Intelligent analytics automatically flag repeated investigations (e.g., HbA1c, Serum Creatinine, MRI) ordered within a 90-day window across different hospitals, preventing redundant costs and unnecessary procedures.
 
 ---
 
-## 🏗️ System Architecture
+## 🏗️ System Architecture (3-Tier Production Stack)
 
 ```mermaid
 graph TD
-    subgraph Clients["Clients & Portals"]
+    subgraph Clients["Presentation Layer (Next.js 16)"]
         P["👤 Patient Portal\n(/dashboard, /consents)"]
         D["🩺 Doctor Portal\n(/patients, /visits/new)"]
         A["🛡️ Admin Portal\n(/dashboard, /hospitals, /audit)"]
-    end
-
-    subgraph Frontend["Next.js 16 Full-Stack (Turbopack)"]
         UI["Neobrutalist UI & 3D Lever Switch"]
         Auth["Firebase Auth & Session Engine"]
-        Store["In-Memory Relational Engine\n(BCNF Multi-Hospital Store)"]
     end
 
-    subgraph Security["Federation & Governance Engine"]
-        ConsentCheck["fn_has_consent() Policy Evaluator"]
-        BreakGlass["Emergency Break-Glass Guard"]
-        AuditLedger["Immutable Audit Trail (trg_visit_audit)"]
-        DupCheck["v_duplicate_lab_tests Analyzer"]
+    subgraph Backend["Application Layer (FastAPI & Uvicorn)"]
+        API["FastAPI REST Endpoints\n(/api/hospitals, /api/consents, /api/audit)"]
+        AuthRouter["Session & Authentication Router"]
+        PolicyEngine["Consent Policy & Break-Glass Verifier"]
     end
 
-    subgraph Data["Database Layer (PostgreSQL 17)"]
-        DB[(PostgreSQL 17\n9 Relational Tables in BCNF)]
+    subgraph Database["Database Layer (PostgreSQL 17 — BCNF Relational Tables)"]
+        DB[(9 Relational Tables in BCNF\n5,000+ Patients, 50 Hospitals, 300+ Doctors)]
+        Procs["Stored Procedures & Functions\n(fn_has_consent, sp_grant_consent)"]
+        Views["Analytical Views\n(v_patient_timeline, v_duplicate_lab_tests, v_hospital_caseload)"]
+        Triggers["Triggers & Audit Ledger\n(trg_visit_audit -> audit_log)"]
     end
 
     P --> UI
     D --> UI
     A --> UI
     UI --> Auth
-    Auth --> Store
-    Store --> ConsentCheck
-    ConsentCheck --> BreakGlass
-    BreakGlass --> AuditLedger
-    Store --> DupCheck
-    Store -.-> DB
+    Auth --> API
+    API --> PolicyEngine
+    PolicyEngine --> Procs
+    API --> Views
+    API --> DB
+    DB --> Triggers
 ```
 
 ---
 
-## 🚀 Quick Start — How to Run
+## 🚀 How to Run the Project
 
-### Option 1: Run the Next.js Frontend (Quickest & Recommended)
+### Method 1: Docker Compose (Full Stack — Recommended)
 
-The Next.js frontend includes an in-memory relational engine that accurately mirrors PostgreSQL BCNF schema, stored procedures, triggers, views, and Firebase authentication out of the box.
-
-```bash
-# 1. Navigate to the frontend directory
-cd frontend
-
-# 2. Install dependencies
-pnpm install
-# (or: npm install)
-
-# 3. Start the development server
-pnpm run dev
-# (or: npm run dev)
-```
-
-Open your browser and navigate to:
-👉 **[http://localhost:3000](http://localhost:3000)**
-
----
-
-### Option 2: Run with Docker Compose (Full Stack)
-
-To run the containerized application with **PostgreSQL 17**, the **FastAPI backend**, and **Next.js**:
+Runs the entire containerized application (**PostgreSQL 17**, **FastAPI Python Backend**, and **Next.js 16 Frontend**) with pre-populated datasets and synchronized sequences in one command:
 
 ```bash
 # From the repository root:
-docker compose up --build
+docker compose up -d --build
 ```
 
-* **Frontend:** [http://localhost:3000](http://localhost:3000)
-* **Backend API:** [http://localhost:8000](http://localhost:8000)
-* **PostgreSQL Database:** `localhost:5432` (Database: `aarogya_db`, User: `aarogya`, Password: `aarogya_dev_password`)
+#### Application Endpoints:
+* **Frontend Web App:** [http://localhost:3000](http://localhost:3000)
+* **Backend API Health Check:** [http://localhost:8000/api/health](http://localhost:8000/api/health)
+* **Interactive API Specification:** [http://localhost:8000/redoc](http://localhost:8000/redoc)
+* **PostgreSQL Database:** `localhost:5432`  
+  * Database: `aarogya_db`
+  * Username: `aarogya`
+  * Password: `aarogya_dev_password`
 
 ---
 
-## 🔑 Authentication & Demo Credentials
+### Method 2: Hybrid Local Development (Docker DB + Local Services)
+
+Ideal for active development with instant hot-reloading (FastAPI reload and Next.js Turbopack HMR):
+
+1. **Start PostgreSQL in Docker:**
+   ```bash
+   docker compose up -d db
+   ```
+
+2. **Start Backend Locally:**
+   ```bash
+   cd backend
+   # Set the database connection string:
+   # PowerShell:
+   $env:DATABASE_URL="postgresql+psycopg://aarogya:aarogya_dev_password@localhost:5432/aarogya_db"
+   # Bash/Linux:
+   # export DATABASE_URL="postgresql+psycopg://aarogya:aarogya_dev_password@localhost:5432/aarogya_db"
+
+   python -m uvicorn main:app --reload --port 8000
+   ```
+
+3. **Start Frontend Locally:**
+   ```bash
+   cd frontend
+   npm install
+   npm run dev
+   ```
+   Open [http://localhost:3000](http://localhost:3000).
+
+---
+
+### Method 3: Standalone Frontend Demo Mode (Offline / Zero-Docker)
+
+For presenting offline or on machines without Docker or Python:
+The Next.js application features a built-in in-memory relational fallback engine mirroring the PostgreSQL BCNF schema, `fn_has_consent`, triggers, and analytical views.
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+Open [http://localhost:3000](http://localhost:3000). The frontend automatically detects the absence of the backend and runs seamlessly with the offline relational store.
+
+---
+
+## 🔑 Authentication & Demo Persona Credentials
 
 AarogyaLink supports both **1-Click Instant Demo Persona Logins** and **Firebase Email/Password Authentication**.
 
-### 1-Click Instant Demo Logins (On Login Card)
+### 1-Click Instant Demo Logins:
 
 | Role | Persona Name | Email | Password | Access Scope |
 | :--- | :--- | :--- | :--- | :--- |
-| **Patient** | Karthik Iyer | `karthik.iyer@example.in` | `AarogyaLink@123` | View visits, medications, labs, manage consents |
-| **Doctor** | Dr. Rohan Mehta | `rohan.mehta@example.in` | `AarogyaLink@123` | Cardiology @ Apollo Chennai (OPD / Chart access) |
-| **Doctor** | Dr. Arjun Singh | `arjun.singh@example.in` | `AarogyaLink@123` | Emergency Medicine @ Fortis Bengaluru |
-| **Admin** | Central Admin | `admin@aarogyalink.in` | `AarogyaLink@123` | Full network oversight, patient registry, audit log |
+| **Patient** | Karthik Iyer | `karthik.iyer@example.in` | `AarogyaLink@123` | View unified visits, active prescriptions, labs, and manage consents |
+| **Doctor** | Dr. Rohan Mehta | `rohan.mehta@example.in` | `AarogyaLink@123` | Cardiology @ Apollo Hospitals (OPD chart access & visit records) |
+| **Emergency Doctor** | Dr. Arjun Singh | `arjun.singh@example.in` | `AarogyaLink@123` | Emergency Medicine @ Fortis Healthcare (Audited break-glass override) |
+| **Admin** | Central Administrator | `admin@aarogyalink.in` | `AarogyaLink@123` | Network-wide facility caseload, patient roster sync, audit trail |
 
-### Creating a New Account
-* Click the **Create Account** tab on `/`.
-* Choose your role: **Patient**, **Doctor**, or **Admin**.
-* The role is automatically registered and permanently remembered for all subsequent sign-ins.
-* Default temporary password for newly registered accounts: **`ArogyaLink@2026`** (or choose your own).
+### Resilient Session Management:
+* Supports both Firebase client token validation and standard HTTP session cookies.
+* Dedicated session revocation endpoint (`DELETE /api/auth/session`) guarantees clean, error-free sign-outs across browser refreshes and container rebuilds.
 
 ---
 
-## 🎨 UI & Design System
+## 🛡️ Dynamic Consent & Dual-Tier Access Control
 
-AarogyaLink features a tactile **Neobrutalism** and modern charcoal design system:
+Access control is enforced at the database level inside PostgreSQL via the stored function `fn_has_consent(p_patient_id, p_doctor_id)`:
 
-* **Dark Charcoal & Gray Palette:**
-  * Deep Background Base: `#121212`
-  * Card / Container Layers: `#1C1C1C`
-  * High-Contrast Borders: `#444444` / `#000000`
-  * Primary Text: `#E0E0E0` (Silver-white)
-  * Muted Text: `#B0B0B0`
-  * Soft Gray Accent: `#888888`
-* **3D Isometric Input Containers:** Tactile perspective inputs with uppercase badge headers and interactive password SHOW/HIDE visibility toggles.
-* **3D Knife-Switch Dark Mode Toggle:** An interactive mechanical lever switch in the header that flips with 3D faceted geometry to switch themes.
-* **Neobrutalist Tab Bar:**
-  * 🚀 **Dashboard:** Cyan (`#06B6D4`)
-  * 👥 **Patients / Registry:** Sky Blue (`#60A5FA`)
-  * 🛡️ **Consent:** Amber (`#FACC14`)
-  * 📜 **Audit Log:** Orange (`#FB923C`)
-  * 🏥 **Hospitals:** Emerald (`#10B981`)
-  * 🧪 **Duplicate Tests:** Purple (`#A855F7`)
-  * ⬅️ **Back Button:** Includes hover-expanding text transition.
+```sql
+CREATE OR REPLACE FUNCTION public.fn_has_consent(
+    p_patient_id character varying, 
+    p_doctor_id character varying
+)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+AS $function$
+  SELECT EXISTS (
+    SELECT 1
+    FROM consent c
+    JOIN doctor d ON d.doctor_id = p_doctor_id
+    WHERE c.patient_id = p_patient_id
+      AND c.status = 'Active'
+      AND c.start_date <= CURRENT_DATE
+      AND (c.end_date IS NULL OR c.end_date >= CURRENT_DATE)
+      AND (c.doctor_id = p_doctor_id OR c.hospital_id = d.hospital_id)
+  );
+$function$;
+```
+
+### Access Model Breakdown:
+* **Hospital-Level Consent (`c.hospital_id = d.hospital_id`):** When granted to a hospital facility, all doctors affiliated with that institution can review the patient's record during consultations and emergency care.
+* **Doctor-Specific Consent (`c.doctor_id = p_doctor_id`):** Grants access strictly to an individual physician (e.g. private oncologist or cardiologist). Other physicians in the same facility are denied access.
+* **Consent Table Metadata:** Displays doctor specialization (e.g., Cardiology, Endocrinology, Pulmonology), affiliated hospital facility, and geographic location (City, State).
 
 ---
 
 ## 🗄️ Database Architecture & BCNF Schema
 
-The relational schema is in **Boyce-Codd Normal Form (BCNF)** and enforces strict referential integrity.
+The relational schema is structured in **Boyce-Codd Normal Form (BCNF)** and enforces referential integrity:
 
 ### Entity Relationship Model
 
@@ -167,19 +200,17 @@ erDiagram
 
 ### Table Breakdown
 
-| Table | Primary Key | Foreign Keys | Cascade | Description |
+| Table | Primary Key | Foreign Keys | Delete Rule | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| `patient` | `patient_id` | — | RESTRICT | Patient demographics, contact info, unique email. |
-| `hospital` | `hospital_id` | — | RESTRICT | Accredited hospital facilities and registration numbers. |
-| `doctor` | `doctor_id` | `hospital_id` → `hospital` | RESTRICT | Doctors with license numbers and hospital affiliations. |
+| `patient` | `patient_id` | — | RESTRICT | Demographics, contact info, unique email. |
+| `hospital` | `hospital_id` | — | RESTRICT | Accredited hospital facilities, addresses, and registration numbers. |
+| `doctor` | `doctor_id` | `hospital_id` → `hospital` | RESTRICT | Doctors with license numbers, specializations, and hospital affiliations. |
 | `visit` | `visit_id` | `patient_id`, `hospital_id`, `doctor_id` | RESTRICT | Clinical encounter records (OPD, Emergency, Inpatient). |
 | `diagnosis` | `diagnosis_id`| `visit_id` → `visit` | **CASCADE** | ICD-10 diagnostic codes and clinical notes. |
-| `prescription`| `prescription_id`| `visit_id` → `visit`| **CASCADE** | Medications, dosage, frequency, and treatment course. |
-| `lab_test` | `lab_test_id` | `visit_id` → `visit` | **CASCADE** | Diagnostic lab results, units, flags, and dates. |
-| `consent` | `consent_id` | `patient_id`, `hospital_id` (opt), `doctor_id` (opt) | RESTRICT | Dynamic access policies (`Active` / `Revoked`). |
-| `audit_log` | `log_id` | `patient_id`, `doctor_id` (opt) | RESTRICT / SET NULL | Immutable audit trail (`READ`, `INSERT`, `EMERGENCY_READ`, `DENIED`). |
-
-> 📖 **Full Database Documentation:** For SQL DDL, indexes, queries, and triggers, see [`docs/DATABASE_SCHEMA.md`](docs/DATABASE_SCHEMA.md) and [`docs/AarogyaLink_DA2_SQL_Queries.md`](docs/AarogyaLink_DA2_SQL_Queries.md).
+| `prescription`| `prescription_id`| `visit_id` → `visit`| **CASCADE** | Medications, dosage, frequency, and duration. |
+| `lab_test` | `lab_test_id` | `visit_id` → `visit` | **CASCADE** | Diagnostic lab results, units, flags, and test dates. |
+| `consent` | `consent_id` | `patient_id`, `hospital_id` (opt), `doctor_id` (opt) | RESTRICT | Dynamic access permissions (`Active` / `Revoked`). |
+| `audit_log` | `log_id` | `patient_id`, `doctor_id` (opt) | RESTRICT / SET NULL | Immutable audit trail (`READ`, `INSERT`, `EMERGENCY_OVERRIDE`, `CONSENT_CHANGE`, `DENIED`). |
 
 ---
 
@@ -190,25 +221,25 @@ arogya-link/
 ├── README.md                      # Project root documentation (this file)
 ├── docker-compose.yml             # Full-stack container orchestration
 ├── database/
-│   └── init_migration_001.sql     # PostgreSQL migration script & seed data
-├── docs/
-│   ├── DATABASE_SCHEMA.md         # Detailed schema, relationships & DDL
-│   ├── AarogyaLink_DA2_SQL_Queries.md # Complete SQL queries from DA2
-│   └── 07_frontend_ui.md          # UI design system guidelines
-├── frontend/                      # Next.js 16 Web Application
+│   ├── init_migration_001.sql     # PostgreSQL schema DDL (tables, views, functions, triggers)
+│   ├── initial_mock_data_load_fixed.sql # Multi-hospital seed dataset (5,000 patients, 50 hospitals)
+│   └── seed_demo_consents.sql     # Demo consent generation & sequence synchronization
+├── frontend/                      # Next.js 16 Web Application (App Router)
 │   ├── src/
-│   │   ├── app/                   # App Router pages & API routes
-│   │   │   ├── (portal)/          # Authenticated layout, dashboard, patients, consents, audit
-│   │   │   ├── api/               # API route handlers (/auth/session, /duplicates, etc.)
-│   │   │   ├── globals.css        # Neo-brutalist styles, charcoal theme, 3D lever CSS
-│   │   │   └── page.tsx           # Landing page with interactive Auth card
+│   │   ├── app/                   # Portal pages (/dashboard, /consents, /patients, /audit)
+│   │   │   ├── api/auth/session/  # Authentication session handlers (POST, DELETE)
+│   │   │   ├── globals.css        # Neo-brutalist styles and 3D lever CSS
+│   │   │   └── page.tsx           # Interactive landing page with authentication card
 │   │   ├── components/            # UI Components (NavLinks, ThemeToggle, AuthCard, etc.)
-│   │   └── lib/                   # Store, Firebase client, Session, Formatters, Actions
+│   │   └── lib/                   # API client, store, Firebase client, session manager
+│   ├── Dockerfile                 # Multi-stage optimized standalone production image
 │   └── package.json
 └── backend/                       # FastAPI Python Backend
-    ├── main.py
-    └── pyproject.toml
+    ├── main.py                    # Application entry point with CORS & routers
+    ├── requirements.txt           # Python dependencies (FastAPI, SQLAlchemy, Psycopg, Uvicorn)
+    ├── Dockerfile                 # Container specification
+    └── src/
+        ├── core/                  # Database configuration & session factories
+        ├── models/                # SQLAlchemy ORM models (BCNF)
+        └── routers/               # Modular REST endpoints (hospitals, doctors, consents, audit)
 ```
-
----
-
