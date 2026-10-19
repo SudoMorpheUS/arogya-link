@@ -4,7 +4,7 @@ import datetime
 from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from ..core.database import get_db
 from ..models.audit_log import AuditLog
@@ -15,6 +15,43 @@ from ..models.patient import Patient
 
 router = APIRouter(prefix="/api/consents", tags=["consents"])
 
+INDIAN_CITY_STATE = {
+    "kolkata": ("Kolkata", "West Bengal"),
+    "mumbai": ("Mumbai", "Maharashtra"),
+    "bhopal": ("Bhopal", "Madhya Pradesh"),
+    "hyderabad": ("Hyderabad", "Telangana"),
+    "pune": ("Pune", "Maharashtra"),
+    "nagpur": ("Nagpur", "Maharashtra"),
+    "coimbatore": ("Coimbatore", "Tamil Nadu"),
+    "lucknow": ("Lucknow", "Uttar Pradesh"),
+    "jaipur": ("Jaipur", "Rajasthan"),
+    "ahmedabad": ("Ahmedabad", "Gujarat"),
+    "bangalore": ("Bengaluru", "Karnataka"),
+    "bengaluru": ("Bengaluru", "Karnataka"),
+    "bhubaneswar": ("Bhubaneswar", "Odisha"),
+    "patna": ("Patna", "Bihar"),
+    "visakhapatnam": ("Visakhapatnam", "Andhra Pradesh"),
+    "chennai": ("Chennai", "Tamil Nadu"),
+    "surat": ("Surat", "Gujarat"),
+    "kochi": ("Kochi", "Kerala"),
+    "delhi": ("Delhi", "Delhi"),
+    "new delhi": ("Delhi", "Delhi"),
+    "indore": ("Indore", "Madhya Pradesh"),
+}
+
+
+def extract_city_state(address: str | None) -> tuple[str, str]:
+    if not address:
+        return ("—", "—")
+    addr_lower = address.lower()
+    for key, (city, state) in INDIAN_CITY_STATE.items():
+        if key in addr_lower:
+            return (city, state)
+    parts = [p.strip() for p in address.split(",") if p.strip()]
+    if parts:
+        return (parts[-1], "India")
+    return ("—", "—")
+
 
 @router.get("")
 def list_consents(
@@ -24,7 +61,9 @@ def list_consents(
     limit: int = Query(default=100, ge=1, le=500),
     db: Session = Depends(get_db),
 ) -> list[dict[str, Any]]:
-    """List consent grants decorated with patient, hospital, and doctor names."""
+    """List consent grants decorated with patient, hospital, doctor specialization, and location/state."""
+    DocHospital = aliased(Hospital)
+
     stmt = (
         select(
             Consent.consent_id,
@@ -32,8 +71,12 @@ def list_consents(
             Patient.full_name.label("patient_name"),
             Consent.hospital_id,
             Hospital.hospital_name,
+            Hospital.address.label("hospital_address"),
             Consent.doctor_id,
             Doctor.full_name.label("doctor_name"),
+            Doctor.specialization.label("doctor_specialization"),
+            DocHospital.hospital_name.label("doctor_hospital_name"),
+            DocHospital.address.label("doctor_hospital_address"),
             Consent.start_date,
             Consent.end_date,
             Consent.status,
@@ -41,6 +84,7 @@ def list_consents(
         .join(Patient, Consent.patient_id == Patient.patient_id)
         .outerjoin(Hospital, Consent.hospital_id == Hospital.hospital_id)
         .outerjoin(Doctor, Consent.doctor_id == Doctor.doctor_id)
+        .outerjoin(DocHospital, Doctor.hospital_id == DocHospital.hospital_id)
         .order_by(Consent.start_date.desc(), Consent.consent_id.desc())
     )
     if patient_id:
@@ -52,21 +96,33 @@ def list_consents(
     stmt = stmt.limit(limit)
 
     rows = db.execute(stmt).all()
-    return [
-        {
+    results = []
+    for r in rows:
+        is_doctor = bool(r.doctor_id)
+        addr = r.doctor_hospital_address if is_doctor else r.hospital_address
+        hosp_name = r.doctor_hospital_name if is_doctor else r.hospital_name
+        city, state_name = extract_city_state(addr)
+        results.append({
             "consent_id": r.consent_id,
             "patient_id": r.patient_id,
             "patient_name": r.patient_name,
             "hospital_id": r.hospital_id,
             "hospital_name": r.hospital_name,
+            "hospital_address": r.hospital_address,
             "doctor_id": r.doctor_id,
             "doctor_name": r.doctor_name,
+            "doctor_specialization": r.doctor_specialization,
+            "doctor_hospital_name": r.doctor_hospital_name,
+            "doctor_hospital_address": r.doctor_hospital_address,
+            "resolved_hospital_name": hosp_name,
+            "city": city,
+            "state": state_name,
+            "location": f"{city}, {state_name}" if city != "—" else "—",
             "start_date": r.start_date.isoformat() if r.start_date else "",
             "end_date": r.end_date.isoformat() if r.end_date else None,
             "status": r.status,
-        }
-        for r in rows
-    ]
+        })
+    return results
 
 
 @router.get("/distribution")

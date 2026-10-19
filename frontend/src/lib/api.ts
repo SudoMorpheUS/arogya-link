@@ -272,6 +272,11 @@ export const api = {
     params.append("limit", String(limit));
     return apiRequest<ApiAuditEntry[]>(`/api/audit?${params.toString()}`);
   },
+  createAuditEntry: (data: { patient_id?: string | null; doctor_id?: string | null; action: string; details?: string }) =>
+    apiRequest<any>("/api/audit", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
   recordBreakGlass: (patientId: string, doctorId: string, reason: string) =>
     apiRequest<any>("/api/audit/break-glass", {
       method: "POST",

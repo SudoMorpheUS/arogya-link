@@ -15,7 +15,17 @@ export function SignOutButton() {
       } catch (e) {
         console.warn("Firebase sign-out note:", e);
       }
-      await signOut();
+      try {
+        await fetch("/api/auth/session", { method: "DELETE" });
+      } catch (e) {
+        console.warn("Session delete note:", e);
+      }
+      try {
+        await signOut();
+      } catch (e) {
+        console.warn("Server action sign out note:", e);
+      }
+      window.location.href = "/";
     });
   };
 

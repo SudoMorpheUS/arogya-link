@@ -13,7 +13,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: "Email is required" }, { status: 400 });
     }
 
-    const isRegistration = Boolean(body.isRegistration || body.role);
+    const isRegistration = Boolean(body.isRegistration);
     const requestedRole = (body.role as Role) || (body.preferredRole as Role) || undefined;
 
     // Check FastAPI backend lookup (querying PostgreSQL), fallback to local store
@@ -145,3 +145,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, error: err.message || "Failed to establish session" }, { status: 500 });
   }
 }
+
+export async function DELETE() {
+  try {
+    const cookieStore = await cookies();
+    cookieStore.delete(SESSION_COOKIE);
+    return NextResponse.json({ success: true, message: "Logged out" });
+  } catch (err: any) {
+    return NextResponse.json({ success: false, error: err.message || "Failed to log out" }, { status: 500 });
+  }
+}
+

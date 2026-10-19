@@ -88,6 +88,28 @@ def record_break_glass(payload: dict[str, Any], db: Session = Depends(get_db)) -
     }
 
 
+@router.post("", status_code=201)
+def create_audit_entry(payload: dict[str, Any], db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Record an audit trail event (e.g. READ, DENIED, VIEW_TIMELINE)."""
+    patient_id = payload.get("patient_id")
+    doctor_id = payload.get("doctor_id")
+    action = payload.get("action", "READ")
+    details = payload.get("details", "")
+
+    log_entry = AuditLog(
+        patient_id=patient_id,
+        doctor_id=doctor_id,
+        action=action,
+        action_time=datetime.datetime.now(datetime.timezone.utc),
+        details=details,
+    )
+    db.add(log_entry)
+    db.commit()
+    db.refresh(log_entry)
+    return {"log_id": log_entry.log_id, "action": log_entry.action}
+
+
+
 @router.get("/emergency-check")
 def check_emergency_access(
     patient_id: str = Query(...),

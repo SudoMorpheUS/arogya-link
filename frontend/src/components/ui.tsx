@@ -37,7 +37,7 @@ export function LabChip({ flag, direction }: { flag: LabFlag; direction: "high" 
 
 export function ActionChip({ action }: { action: string }) {
   if (action === "DENIED") return <Chip tone="attention">Denied</Chip>;
-  if (action === "EMERGENCY_READ") return <Chip tone="critical">Emergency read</Chip>;
+  if (action === "EMERGENCY_READ" || action === "EMERGENCY_OVERRIDE") return <Chip tone="critical">Emergency read</Chip>;
   if (action === "READ") return <Chip tone="info">Read</Chip>;
   if (action === "CONSENT_CHANGE") return <Chip tone="neutral" icon={false}>Consent change</Chip>;
   return <Chip tone="neutral" icon={false}>{action === "INSERT" ? "Visit recorded" : action}</Chip>;

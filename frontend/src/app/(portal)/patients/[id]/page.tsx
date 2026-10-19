@@ -8,6 +8,7 @@ import { breakGlassAction } from "@/lib/actions";
 import { ageOn, formatDate, GENDER_LABEL } from "@/lib/format";
 import { assessLab } from "@/lib/lab-ranges";
 import { requireSession } from "@/lib/session";
+import { api } from "@/lib/api";
 import * as store from "@/lib/store";
 
 export const metadata: Metadata = { title: "Patient chart" };
@@ -28,6 +29,25 @@ export default async function ChartPage({
   const chart = store.openChart(id, session.id!);
   const hospital = store.getHospital(store.getDoctor(session.id!)!.hospital_id)!;
   const today = store.today();
+
+  try {
+    if (!chart.ok) {
+      await api.createAuditEntry({
+        patient_id: id,
+        doctor_id: session.id,
+        action: "DENIED",
+        details: `Access denied: no active consent for ${hospital?.hospital_name ?? "hospital"}`,
+      });
+    } else if (chart.level === "consent") {
+      await api.createAuditEntry({
+        patient_id: id,
+        doctor_id: session.id,
+        action: "READ",
+        details: `Opened unified chart at ${hospital?.hospital_name ?? "hospital"}`,
+      });
+    }
+  } catch {}
+
 
   const header = (
     <section className="card patient-head" aria-label="Patient">

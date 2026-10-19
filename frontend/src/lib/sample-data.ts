@@ -198,6 +198,21 @@ export const consents: Consent[] = [
   c(11, "PAT-IN-1005", "HSP-02", null, "2026-08-25", null, "Active"),
   c(12, "PAT-IN-1006", "HSP-02", null, "2026-08-11", null, "Active"),
   c(13, "PAT-IN-1006", "HSP-03", null, "2026-03-01", "2026-06-30", "Revoked"),
+  // Active demo consents for each patient's care team doctors and hospitals
+  c(14, "PAT-IN-1001", null, "DOC-01", "2025-11-10", null, "Active"),
+  c(15, "PAT-IN-1001", null, "DOC-02", "2025-11-10", null, "Active"),
+  c(16, "PAT-IN-1001", null, "DOC-04", "2026-07-01", null, "Active"),
+  c(17, "PAT-IN-1002", null, "DOC-01", "2026-02-15", null, "Active"),
+  c(18, "PAT-IN-1002", null, "DOC-02", "2026-08-02", null, "Active"),
+  c(19, "PAT-IN-1002", null, "DOC-04", "2026-08-18", null, "Active"),
+  c(20, "PAT-IN-1002", null, "DOC-06", "2026-04-09", null, "Active"),
+  c(21, "PAT-IN-1003", null, "DOC-06", "2026-05-20", null, "Active"),
+  c(22, "PAT-IN-1004", null, "DOC-01", "2026-03-10", null, "Active"),
+  c(23, "PAT-IN-1004", "HSP-02", null, "2026-06-19", null, "Active"),
+  c(24, "PAT-IN-1005", null, "DOC-01", "2025-08-30", null, "Active"),
+  c(25, "PAT-IN-1005", null, "DOC-04", "2026-08-25", null, "Active"),
+  c(26, "PAT-IN-1005", null, "DOC-05", "2026-01-14", null, "Active"),
+  c(27, "PAT-IN-1006", null, "DOC-03", "2026-08-11", null, "Active"),
 ];
 
 const log = (
@@ -209,7 +224,7 @@ const log = (
   details: string,
 ): AuditLogEntry => ({ log_id, patient_id, doctor_id, action, action_time, details });
 
-// 1-13: visit_audit trigger (one INSERT per visit); 14-26: consent changes; 27-31: access events.
+// 1-13: visit_audit trigger (one INSERT per visit); 14+: consent changes; then access events.
 export const auditLog: AuditLogEntry[] = [
   ...visits.map((x) =>
     log(
@@ -225,15 +240,15 @@ export const auditLog: AuditLogEntry[] = [
     log(
       14 + i,
       x.patient_id,
-      null,
+      x.doctor_id,
       "CONSENT_CHANGE",
       `${x.start_date}T09:00:00`,
       `consent_id=${x.consent_id} status=${x.status} hospital=${x.hospital_id ?? "—"} doctor=${x.doctor_id ?? "—"}`,
     ),
   ),
-  log(27, "PAT-IN-1002", "DOC-01", "READ", "2026-08-02T11:31:00", "Opened unified chart at Apollo"),
-  log(28, "PAT-IN-1002", "DOC-04", "READ", "2026-08-20T14:46:00", "Opened unified chart at Fortis"),
-  log(29, "PAT-IN-1001", "DOC-04", "READ", "2026-07-03T16:12:00", "Second-opinion chart"),
-  log(30, "PAT-IN-1004", "DOC-03", "EMERGENCY_READ", "2026-06-19T22:41:00", "Emergency override — palpitations"),
-  log(31, "PAT-IN-1006", "DOC-05", "DENIED", "2026-08-15T10:02:00", "No active consent for AIIMS orthopedics"),
+  log(14 + consents.length + 1, "PAT-IN-1002", "DOC-01", "READ", "2026-08-02T11:31:00", "Opened unified chart at Apollo"),
+  log(14 + consents.length + 2, "PAT-IN-1002", "DOC-04", "READ", "2026-08-20T14:46:00", "Opened unified chart at Fortis"),
+  log(14 + consents.length + 3, "PAT-IN-1001", "DOC-04", "READ", "2026-07-03T16:12:00", "Second-opinion chart"),
+  log(14 + consents.length + 4, "PAT-IN-1004", "DOC-03", "EMERGENCY_READ", "2026-06-19T22:41:00", "Emergency override — palpitations"),
+  log(14 + consents.length + 5, "PAT-IN-1006", "DOC-05", "DENIED", "2026-08-15T10:02:00", "No active consent for AIIMS orthopedics"),
 ];

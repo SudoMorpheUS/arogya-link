@@ -44,6 +44,8 @@ if DEBUG:
 
 
 @app.get("/")
+@app.get("/health")
+@app.get("/api/health")
 async def read_root():
     return {
         "service": "AarogyaLink FastAPI Backend",
@@ -51,3 +53,4 @@ async def read_root():
         "docs": "/docs",
         "database": "PostgreSQL 17 (BCNF)",
     }
+

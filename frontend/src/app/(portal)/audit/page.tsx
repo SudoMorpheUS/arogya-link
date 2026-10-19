@@ -37,7 +37,13 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
           ? store.auditForDoctor(session.id!)
           : store.allAudit();
   }
-  const filtered = action === "ALL" ? all : all.filter((r) => r.action === action);
+  const filtered =
+    action === "ALL"
+      ? all
+      : all.filter((r) => {
+          if (action === "EMERGENCY_READ") return r.action === "EMERGENCY_READ" || r.action === "EMERGENCY_OVERRIDE";
+          return r.action === action;
+        });
   const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const page = Math.min(Math.max(1, Number(pageParam) || 1), pages);
   const rows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);

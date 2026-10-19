@@ -134,6 +134,10 @@ $RECYCLE.BIN/
 # --- Editors and IDEs ---
 .vscode/
 .idea/
+.agents/
+.claude/
+skills-lock.json
+project.txt
 *.swp
 *.swo
 *~

@@ -43,9 +43,9 @@ def lookup_user(
     if not doc and "@" in clean_email:
         # Check doctors with email pattern
         doc = db.scalar(
-            select(Doctor).where(
-                func.lower(Doctor.full_name).like(f"%{clean_email.split('@')[0].replace('.', ' ')}%")
-            )
+            select(Doctor)
+            .where(func.lower(Doctor.full_name).like(f"%{clean_email.split('@')[0].replace('.', ' ')}%"))
+            .order_by(Doctor.doctor_id.asc())
         )
     if doc:
         return {
