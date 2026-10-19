@@ -4,6 +4,7 @@ import { MaskedId } from "@/components/MaskedId";
 import { ActionChip, DataTable, Empty, PageHeader, Pager } from "@/components/ui";
 import { formatDateTime } from "@/lib/format";
 import { requireSession } from "@/lib/session";
+import { api } from "@/lib/api";
 import * as store from "@/lib/store";
 
 export const metadata: Metadata = { title: "Audit log" };
@@ -22,12 +23,20 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
   const session = await requireSession();
   const { action = "ALL", page: pageParam } = await searchParams;
 
-  const all =
-    session.role === "patient"
-      ? store.auditForPatient(session.id!)
-      : session.role === "doctor"
-        ? store.auditForDoctor(session.id!)
-        : store.allAudit();
+  let all: any[] = [];
+  try {
+    const patientId = session.role === "patient" ? session.id! : undefined;
+    const doctorId = session.role === "doctor" ? session.id! : undefined;
+    all = await api.getAuditLogs(patientId, doctorId, 500);
+  } catch (err) {
+    console.warn("Falling back to local store for audit logs:", err);
+    all =
+      session.role === "patient"
+        ? store.auditForPatient(session.id!)
+        : session.role === "doctor"
+          ? store.auditForDoctor(session.id!)
+          : store.allAudit();
+  }
   const filtered = action === "ALL" ? all : all.filter((r) => r.action === action);
   const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const page = Math.min(Math.max(1, Number(pageParam) || 1), pages);

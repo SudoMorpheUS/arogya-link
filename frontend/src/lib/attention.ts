@@ -37,7 +37,7 @@ function criticalLabs(patientId: string) {
     .filter(({ a }) => a.flag === "critical");
 }
 
-export function attentionFor(session: Session): AttentionItem[] {
+export function attentionFor(session: Session, auditList?: any[], consentsList?: any[]): AttentionItem[] {
   const now = store.today();
   const items: AttentionItem[] = [];
 
@@ -139,9 +139,9 @@ export function attentionFor(session: Session): AttentionItem[] {
   }
 
   if (session.role === "admin") {
-    const exceptions = store
-      .allAudit()
-      .filter((e) => (e.action === "DENIED" || e.action === "EMERGENCY_READ") && daysBetween(e.action_time, now) <= EXCEPTION_WINDOW_DAYS);
+    const source = auditList ?? store.allAudit();
+    const exceptions = source
+      .filter((e: any) => (e.action === "DENIED" || e.action === "EMERGENCY_READ") && daysBetween(e.action_time, now) <= EXCEPTION_WINDOW_DAYS);
     const denied = exceptions.filter((e) => e.action === "DENIED").length;
     const overrides = exceptions.length - denied;
     if (overrides > 0) {
@@ -166,7 +166,8 @@ export function attentionFor(session: Session): AttentionItem[] {
         action: "Review",
       });
     }
-    const expiring = store.allConsents().filter((c) => {
+    const consentSource = consentsList ?? store.allConsents();
+    const expiring = consentSource.filter((c: any) => {
       if (c.status !== "Active" || !c.end_date) return false;
       const left = daysBetween(now, c.end_date);
       return left >= 0 && left <= CONSENT_EXPIRY_PATIENT_DAYS;

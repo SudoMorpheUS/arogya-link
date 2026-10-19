@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { clearSession, requireSession, setSession } from "./session";
 import * as store from "./store";
+import { api } from "./api";
 
 export interface FormState {
   error?: string;
@@ -33,31 +34,60 @@ export async function syncFirebaseUserSession(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const email = payload.email.trim().toLowerCase();
-    const existing = store.findUserByEmail(email);
+    
+    // Look up user from FastAPI backend or fallback to local store
+    let lookup: { role: "patient" | "doctor" | "admin"; id: string | null; name: string } | null = null;
+    try {
+      lookup = await api.lookupUser(email);
+    } catch {
+      lookup = store.findUserByEmail(email);
+    }
 
-    let role: "patient" | "doctor" | "admin" = payload.role ?? existing?.role ?? "patient";
-    let id: string | null = null;
-    let name: string = payload.displayName || existing?.name || email.split("@")[0];
+    let role: "patient" | "doctor" | "admin" = payload.role ?? lookup?.role ?? "patient";
+    let id: string | null = lookup?.id ?? null;
+    let name: string = payload.displayName || lookup?.name || email.split("@")[0];
 
     if (role === "admin") {
+      try {
+        await api.registerAdmin(email, name);
+      } catch {}
       store.registerAdmin({ email, name });
       id = null;
     } else if (role === "doctor") {
-      const doc = store.findDoctorByEmail(email);
-      id = doc
-        ? doc.doctor_id
-        : store.registerDoctor({
+      if (!id) {
+        try {
+          const doc = await api.createDoctor({
+            doctor_id: `DOC-${Date.now().toString().slice(-4)}`,
+            hospital_id: payload.hospitalId || "HSP1001",
             full_name: name,
-            hospital_id: payload.hospitalId || "HSP-01",
             specialization: payload.specialization || "General Medicine",
-            license_number: payload.licenseNumber || "MCI-NEW-001",
+            license_number: payload.licenseNumber || `LIC-${Date.now().toString().slice(-6)}`,
+          });
+          id = doc.doctor_id;
+        } catch {
+          id = store.registerDoctor({
+            full_name: name,
+            hospital_id: payload.hospitalId || "HSP1001",
+            specialization: payload.specialization || "General Medicine",
+            license_number: payload.licenseNumber || "LIC-999999",
             email,
           });
+        }
+      }
     } else {
-      const pat = store.findPatientByEmail(email);
-      id = pat
-        ? pat.patient_id
-        : store.registerPatient({
+      if (!id) {
+        try {
+          const pat = await api.registerPatient({
+            full_name: name,
+            date_of_birth: payload.dateOfBirth || "1995-01-01",
+            gender: (payload.gender as any) || "M",
+            blood_group: payload.bloodGroup || "O+",
+            contact_number: payload.contactNumber || "9800000000",
+            email,
+          });
+          id = pat.patient_id;
+        } catch {
+          id = store.registerPatient({
             full_name: name,
             date_of_birth: payload.dateOfBirth || "1995-01-01",
             gender: payload.gender || "M",
@@ -65,6 +95,8 @@ export async function syncFirebaseUserSession(
             contact_number: payload.contactNumber || "9800000000",
             email,
           });
+        }
+      }
     }
 
     await setSession({
@@ -99,29 +131,53 @@ export async function signOut(): Promise<void> {
 
 export async function grantConsentAction(_prev: FormState, formData: FormData): Promise<FormState> {
   const session = await requireSession(["patient"]);
-  const target = text(formData, "target"); // "hospital:HSP-01" or "doctor:DOC-03"
+  const target = text(formData, "target"); // "hospital:HSP1001" or "doctor:DOC10001"
   const [kind, targetId] = target.split(":");
   const start = text(formData, "start_date") || store.today();
   const end = text(formData, "end_date") || null;
   try {
-    store.grantConsent({
+    // 1. Post to FastAPI backend -> runs sp_grant_consent in PostgreSQL and writes to audit_log
+    await api.grantConsent({
       patient_id: session.id!,
       hospital_id: kind === "hospital" ? targetId : null,
       doctor_id: kind === "doctor" ? targetId : null,
       start_date: start,
       end_date: end,
     });
+
+    // 2. Synchronize local store (non-fatal fallback)
+    try {
+      store.grantConsent({
+        patient_id: session.id!,
+        hospital_id: kind === "hospital" ? targetId : null,
+        doctor_id: kind === "doctor" ? targetId : null,
+        start_date: start,
+        end_date: end,
+      });
+    } catch {}
   } catch (e) {
     return { error: (e as Error).message };
   }
   revalidatePath("/consents");
+  revalidatePath("/audit");
+  revalidatePath("/dashboard");
   return { ok: "Consent granted." };
 }
 
 export async function revokeConsentAction(formData: FormData): Promise<void> {
   const session = await requireSession(["patient"]);
-  store.revokeConsent(Number(text(formData, "consent_id")), session.id!);
+  const consentId = Number(text(formData, "consent_id"));
+  try {
+    await api.revokeConsent(consentId);
+  } catch (err) {
+    console.warn("FastAPI revokeConsent error:", err);
+  }
+  try {
+    store.revokeConsent(consentId, session.id!);
+  } catch {}
   revalidatePath("/consents");
+  revalidatePath("/audit");
+  revalidatePath("/dashboard");
 }
 
 // ---------- doctor ----------
@@ -129,8 +185,14 @@ export async function revokeConsentAction(formData: FormData): Promise<void> {
 export async function breakGlassAction(formData: FormData): Promise<void> {
   const session = await requireSession(["doctor"]);
   const patientId = text(formData, "patient_id");
+  const reason = text(formData, "reason");
   try {
-    store.breakGlass(patientId, session.id!, text(formData, "reason"));
+    await api.recordBreakGlass(patientId, session.id!, reason);
+  } catch (err) {
+    console.warn("FastAPI breakGlass error:", err);
+  }
+  try {
+    store.breakGlass(patientId, session.id!, reason);
   } catch (e) {
     redirect(`/patients/${patientId}?error=${encodeURIComponent((e as Error).message)}`);
   }
@@ -173,6 +235,22 @@ export async function recordVisitAction(_prev: FormState, formData: FormData): P
   if (labTests.some((l) => !l.test_name)) return { error: "Each lab result needs a test name." };
 
   try {
+    // 1. Post to FastAPI backend -> PostgreSQL inserts and fires tr_visit_audit trigger
+    try {
+      await api.createVisit({
+        patient_id,
+        doctor_id: session.id!,
+        visit_type: text(formData, "visit_type"),
+        chief_complaint: text(formData, "chief_complaint"),
+        diagnoses,
+        prescriptions,
+        lab_tests: labTests,
+      });
+    } catch (apiErr) {
+      console.warn("FastAPI createVisit error:", apiErr);
+    }
+
+    // 2. Synchronize local store
     store.recordVisit({
       patient_id,
       doctor_id: session.id!,
@@ -193,14 +271,31 @@ export async function registerPatientAction(_prev: FormState, formData: FormData
   await requireSession(["doctor", "admin"]);
   try {
     const emailVal = text(formData, "email");
-    const id = store.registerPatient({
-      full_name: text(formData, "full_name"),
-      date_of_birth: text(formData, "date_of_birth"),
-      gender: text(formData, "gender"),
-      blood_group: text(formData, "blood_group"),
-      contact_number: text(formData, "contact_number"),
-      email: emailVal,
-    });
+    let id: string;
+    
+    // Post to FastAPI backend -> inserts into PostgreSQL patient table
+    try {
+      const res = await api.registerPatient({
+        full_name: text(formData, "full_name"),
+        date_of_birth: text(formData, "date_of_birth"),
+        gender: text(formData, "gender") as any,
+        blood_group: text(formData, "blood_group"),
+        contact_number: text(formData, "contact_number"),
+        email: emailVal,
+      });
+      id = res.patient_id;
+    } catch (apiErr) {
+      console.warn("FastAPI registerPatient error:", apiErr);
+      id = store.registerPatient({
+        full_name: text(formData, "full_name"),
+        date_of_birth: text(formData, "date_of_birth"),
+        gender: text(formData, "gender"),
+        blood_group: text(formData, "blood_group"),
+        contact_number: text(formData, "contact_number"),
+        email: emailVal,
+      });
+    }
+
     revalidatePath("/patients");
     const loginDetails = emailVal
       ? ` Login email: ${emailVal} (Temporary password: ArogyaLink@2026, or patient can set a custom password via Create Account).`

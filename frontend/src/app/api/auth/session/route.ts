@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import * as store from "@/lib/store";
+import { api } from "@/lib/api";
 import { SESSION_COOKIE } from "@/lib/session";
 import type { Role } from "@/lib/types";
 
@@ -14,7 +15,13 @@ export async function POST(request: Request) {
 
     const isRegistration = Boolean(body.isRegistration || body.role);
     const requestedRole = (body.role as Role) || (body.preferredRole as Role) || undefined;
-    const existing = store.findUserByEmail(rawEmail);
+
+    // Check FastAPI backend lookup (querying PostgreSQL), fallback to local store
+    let remoteLookup: { role: Role; id: string | null; name: string } | null = null;
+    try {
+      remoteLookup = await api.lookupUser(rawEmail);
+    } catch {}
+    const existing = remoteLookup || store.findUserByEmail(rawEmail);
 
     let role: Role;
     let id: string | null = null;
@@ -24,36 +31,62 @@ export async function POST(request: Request) {
       // 1. Explicit registration: ALWAYS respect requestedRole
       role = requestedRole;
       if (role === "admin") {
+        try {
+          await api.registerAdmin(rawEmail, name);
+        } catch {}
         store.registerAdmin({ email: rawEmail, name });
         id = null;
       } else if (role === "doctor") {
-        const doc = store.findDoctorByEmail(rawEmail);
-        id = doc
-          ? doc.doctor_id
-          : store.registerDoctor({
-              full_name: name,
-              hospital_id: body.hospitalId || "HSP-01",
-              specialization: body.specialization || "General Medicine",
-              license_number: body.licenseNumber || "MCI-NEW-001",
-              email: rawEmail,
-            });
+        try {
+          const doc = await api.createDoctor({
+            doctor_id: `DOC-${Date.now().toString().slice(-4)}`,
+            hospital_id: body.hospitalId || "HSP1001",
+            full_name: name,
+            specialization: body.specialization || "General Medicine",
+            license_number: body.licenseNumber || `LIC-${Date.now().toString().slice(-6)}`,
+          });
+          id = doc.doctor_id;
+        } catch {
+          const doc = store.findDoctorByEmail(rawEmail);
+          id = doc
+            ? doc.doctor_id
+            : store.registerDoctor({
+                full_name: name,
+                hospital_id: body.hospitalId || "HSP1001",
+                specialization: body.specialization || "General Medicine",
+                license_number: body.licenseNumber || "MCI-NEW-001",
+                email: rawEmail,
+              });
+        }
       } else {
         // patient
-        const pat = store.findPatientByEmail(rawEmail);
-        id = pat
-          ? pat.patient_id
-          : store.registerPatient({
-              full_name: name,
-              date_of_birth: body.dateOfBirth || "1995-01-01",
-              gender: body.gender || "M",
-              blood_group: body.bloodGroup || "O+",
-              contact_number: body.contactNumber || "9800000000",
-              email: rawEmail,
-            });
+        try {
+          const pat = await api.registerPatient({
+            full_name: name,
+            date_of_birth: body.dateOfBirth || "1995-01-01",
+            gender: body.gender || "M",
+            blood_group: body.bloodGroup || "O+",
+            contact_number: body.contactNumber || "9800000000",
+            email: rawEmail,
+          });
+          id = pat.patient_id;
+        } catch {
+          const pat = store.findPatientByEmail(rawEmail);
+          id = pat
+            ? pat.patient_id
+            : store.registerPatient({
+                full_name: name,
+                date_of_birth: body.dateOfBirth || "1995-01-01",
+                gender: body.gender || "M",
+                blood_group: body.bloodGroup || "O+",
+                contact_number: body.contactNumber || "9800000000",
+                email: rawEmail,
+              });
+        }
       }
     } else {
       // 2. Sign-in flow: check existing registered role, then preferredRole, then fallback
-      if (existing) {
+      if (existing && existing.id) {
         role = existing.role;
         id = existing.id;
         name = existing.name || name;
@@ -68,24 +101,27 @@ export async function POST(request: Request) {
           ? doc.doctor_id
           : store.registerDoctor({
               full_name: name,
-              hospital_id: "HSP-01",
+              hospital_id: "HSP1001",
               specialization: "General Medicine",
               license_number: "MCI-NEW-001",
               email: rawEmail,
             });
       } else {
-        role = "patient";
-        const pat = store.findPatientByEmail(rawEmail);
-        id = pat
-          ? pat.patient_id
-          : store.registerPatient({
-              full_name: name,
-              date_of_birth: "1995-01-01",
-              gender: "M",
-              blood_group: "O+",
-              contact_number: "9800000000",
-              email: rawEmail,
-            });
+        role = existing?.role || "patient";
+        id = existing?.id || null;
+        if (!id) {
+          const pat = store.findPatientByEmail(rawEmail);
+          id = pat
+            ? pat.patient_id
+            : store.registerPatient({
+                full_name: name,
+                date_of_birth: "1995-01-01",
+                gender: "M",
+                blood_group: "O+",
+                contact_number: "9800000000",
+                email: rawEmail,
+              });
+        }
       }
     }
 

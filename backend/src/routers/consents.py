@@ -1,0 +1,239 @@
+from __future__ import annotations
+
+import datetime
+from typing import Any
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select, text
+from sqlalchemy.orm import Session
+
+from ..core.database import get_db
+from ..models.audit_log import AuditLog
+from ..models.consent import Consent
+from ..models.doctor import Doctor
+from ..models.hospital import Hospital
+from ..models.patient import Patient
+
+router = APIRouter(prefix="/api/consents", tags=["consents"])
+
+
+@router.get("")
+def list_consents(
+    patient_id: str | None = None,
+    doctor_id: str | None = None,
+    hospital_id: str | None = None,
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+) -> list[dict[str, Any]]:
+    """List consent grants decorated with patient, hospital, and doctor names."""
+    stmt = (
+        select(
+            Consent.consent_id,
+            Consent.patient_id,
+            Patient.full_name.label("patient_name"),
+            Consent.hospital_id,
+            Hospital.hospital_name,
+            Consent.doctor_id,
+            Doctor.full_name.label("doctor_name"),
+            Consent.start_date,
+            Consent.end_date,
+            Consent.status,
+        )
+        .join(Patient, Consent.patient_id == Patient.patient_id)
+        .outerjoin(Hospital, Consent.hospital_id == Hospital.hospital_id)
+        .outerjoin(Doctor, Consent.doctor_id == Doctor.doctor_id)
+        .order_by(Consent.start_date.desc(), Consent.consent_id.desc())
+    )
+    if patient_id:
+        stmt = stmt.where(Consent.patient_id == patient_id)
+    if doctor_id:
+        stmt = stmt.where(Consent.doctor_id == doctor_id)
+    if hospital_id:
+        stmt = stmt.where(Consent.hospital_id == hospital_id)
+    stmt = stmt.limit(limit)
+
+    rows = db.execute(stmt).all()
+    return [
+        {
+            "consent_id": r.consent_id,
+            "patient_id": r.patient_id,
+            "patient_name": r.patient_name,
+            "hospital_id": r.hospital_id,
+            "hospital_name": r.hospital_name,
+            "doctor_id": r.doctor_id,
+            "doctor_name": r.doctor_name,
+            "start_date": r.start_date.isoformat() if r.start_date else "",
+            "end_date": r.end_date.isoformat() if r.end_date else None,
+            "status": r.status,
+        }
+        for r in rows
+    ]
+
+
+@router.get("/distribution")
+def get_patient_consent_distribution(
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+) -> list[dict[str, Any]]:
+    """Return patient consent distribution showing which hospitals each patient has authorized."""
+    sql = text("""
+        SELECT 
+            p.patient_id,
+            p.full_name,
+            p.contact_number,
+            COUNT(c.consent_id) AS total_consents,
+            COUNT(c.consent_id) FILTER (WHERE c.status = 'Active') AS active_consents,
+            ARRAY_REMOVE(ARRAY_AGG(DISTINCT h.hospital_name), NULL) AS consented_hospitals,
+            ARRAY_REMOVE(ARRAY_AGG(DISTINCT d.full_name), NULL) AS consented_doctors,
+            MAX(c.end_date) AS latest_expiry
+        FROM patient p
+        JOIN consent c ON p.patient_id = c.patient_id
+        LEFT JOIN hospital h ON c.hospital_id = h.hospital_id
+        LEFT JOIN doctor d ON c.doctor_id = d.doctor_id
+        GROUP BY p.patient_id, p.full_name, p.contact_number
+        ORDER BY active_consents DESC, total_consents DESC
+        LIMIT :limit
+    """)
+    rows = db.execute(sql, {"limit": limit}).mappings().all()
+    return [
+        {
+            "patient_id": r["patient_id"],
+            "full_name": r["full_name"],
+            "contact_number": r["contact_number"],
+            "total_consents": r["total_consents"],
+            "active_consents": r["active_consents"],
+            "consented_hospitals": r["consented_hospitals"] or [],
+            "consented_doctors": r["consented_doctors"] or [],
+            "latest_expiry": r["latest_expiry"].isoformat() if r["latest_expiry"] else None,
+        }
+        for r in rows
+    ]
+
+
+@router.post("", status_code=201)
+def grant_consent(payload: dict[str, Any], db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Grant dynamic consent using stored procedure or direct insert and write to audit log."""
+    patient_id = payload.get("patient_id")
+    hospital_id = payload.get("hospital_id") or None
+    doctor_id = payload.get("doctor_id") or None
+    start_date_val = payload.get("start_date") or datetime.date.today().isoformat()
+    end_date_val = payload.get("end_date") or None
+
+    if not patient_id:
+        raise HTTPException(status_code=400, detail="patient_id is required")
+    if not hospital_id and not doctor_id:
+        raise HTTPException(status_code=400, detail="Consent must target either a hospital or a doctor")
+
+    new_id = None
+    # Call the PostgreSQL stored procedure `sp_grant_consent`
+    try:
+        new_id = db.scalar(
+            text(
+                "SELECT sp_grant_consent(:pid, :hid, :did, :sdate::date, :edate::date)"
+            ),
+            {
+                "pid": patient_id,
+                "hid": hospital_id,
+                "did": doctor_id,
+                "sdate": start_date_val,
+                "edate": end_date_val,
+            },
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        # Fallback to direct ORM insert if procedure fails
+        start_date = datetime.date.fromisoformat(start_date_val) if isinstance(start_date_val, str) else start_date_val
+        end_date = datetime.date.fromisoformat(end_date_val) if end_date_val and isinstance(end_date_val, str) else end_date_val
+        c = Consent(
+            patient_id=patient_id,
+            hospital_id=hospital_id,
+            doctor_id=doctor_id,
+            start_date=start_date,
+            end_date=end_date,
+            status="Active",
+        )
+        db.add(c)
+        try:
+            db.commit()
+            db.refresh(c)
+            new_id = c.consent_id
+        except Exception as e:
+            db.rollback()
+            raise HTTPException(status_code=400, detail=str(e)) from e
+
+    # Write immutable audit log entry to PostgreSQL
+    try:
+        audit = AuditLog(
+            patient_id=patient_id,
+            doctor_id=doctor_id,
+            action="CONSENT_CHANGE",
+            action_time=datetime.datetime.now(),
+            details=f"consent_id={new_id} status=Active hospital={hospital_id or '—'} doctor={doctor_id or '—'}",
+        )
+        db.add(audit)
+        db.commit()
+    except Exception as audit_err:
+        print(f"Warning: failed to write consent audit log: {audit_err}")
+
+    return {"consent_id": new_id, "status": "Active", "message": "Consent granted successfully"}
+
+
+@router.post("/{consent_id}/revoke")
+def revoke_consent(consent_id: int, payload: dict[str, Any] | None = None, db: Session = Depends(get_db)):
+    """Revoke an active consent and record CONSENT_CHANGE in the audit log."""
+    consent = db.scalar(select(Consent).where(Consent.consent_id == consent_id))
+    if not consent:
+        raise HTTPException(status_code=404, detail="Consent not found")
+
+    consent.status = "Revoked"
+    consent.end_date = datetime.date.today()
+    try:
+        audit = AuditLog(
+            patient_id=consent.patient_id,
+            doctor_id=consent.doctor_id,
+            action="CONSENT_CHANGE",
+            action_time=datetime.datetime.now(),
+            details=f"consent_id={consent.consent_id} status=Revoked hospital={consent.hospital_id or '—'} doctor={consent.doctor_id or '—'}",
+        )
+        db.add(audit)
+    except Exception as audit_err:
+        print(f"Warning: failed to write revoke audit log: {audit_err}")
+    db.commit()
+    return {"consent_id": consent.consent_id, "status": "Revoked"}
+
+
+@router.get("/check")
+def check_consent(
+    patient_id: str = Query(...),
+    doctor_id: str = Query(...),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Execute fn_has_consent(patient_id, doctor_id) stored function in PostgreSQL."""
+    try:
+        has_consent = db.scalar(
+            text("SELECT fn_has_consent(:pid, :did)"),
+            {"pid": patient_id, "did": doctor_id},
+        )
+    except Exception:
+        # Fallback query
+        doc = db.scalar(select(Doctor).where(Doctor.doctor_id == doctor_id))
+        if not doc:
+            has_consent = False
+        else:
+            today = datetime.date.today()
+            consent = db.scalar(
+                select(Consent).where(
+                    Consent.patient_id == patient_id,
+                    Consent.status == "Active",
+                    Consent.start_date <= today,
+                    (Consent.end_date.is_(None) | (Consent.end_date >= today)),
+                    ((Consent.doctor_id == doctor_id) | (Consent.hospital_id == doc.hospital_id)),
+                )
+            )
+            has_consent = consent is not None
+
+    return {
+        "patient_id": patient_id,
+        "doctor_id": doctor_id,
+        "has_consent": bool(has_consent),
+    }

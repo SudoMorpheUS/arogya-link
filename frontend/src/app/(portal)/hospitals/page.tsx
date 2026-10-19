@@ -1,21 +1,36 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { Chip, DataTable, PageHeader } from "@/components/ui";
 import { requireSession } from "@/lib/session";
+import { api, type ApiHospitalCaseload, type ApiDoctor } from "@/lib/api";
 import * as store from "@/lib/store";
 
 export const metadata: Metadata = { title: "Hospitals & doctors" };
 
 export default async function HospitalsPage() {
   await requireSession(["admin"]);
-  const caseload = new Map(store.caseload().map((c) => [c.hospital_id, c]));
-  const doctors = store.listDoctors();
+  let hospitals: ApiHospitalCaseload[] = [];
+  let doctors: ApiDoctor[] = [];
+
+  try {
+    const [hospData, docData] = await Promise.all([
+      api.getHospitalCaseload(),
+      api.getDoctors(),
+    ]);
+    hospitals = hospData;
+    doctors = docData;
+  } catch (err) {
+    console.warn("Falling back to local store for hospitals:", err);
+    hospitals = store.caseload() as any;
+    doctors = store.listDoctors() as any;
+  }
 
   return (
     <div className="page">
       <PageHeader title="Hospitals & doctors" subtitle="Registered facilities, their clinicians and caseload." />
       <div className="grid grid--wide">
-        {store.listHospitals().map((h) => {
-          const c = caseload.get(h.hospital_id)!;
+        {hospitals.map((h) => {
+          const docsAtHospital = doctors.filter((d) => d.hospital_id === h.hospital_id);
           return (
             <section className="card card-host stack-sm" key={h.hospital_id} aria-labelledby={`h-${h.hospital_id}`}>
               <div>
@@ -27,16 +42,22 @@ export default async function HospitalsPage() {
                   {h.hospital_id} · {h.registration_no}
                 </p>
               </div>
-              <div className="flex">
-                <Chip tone="neutral" icon={false}>{c.visit_count} visits</Chip>
-                <Chip tone="neutral" icon={false}>{c.patient_count} patients</Chip>
-                <Chip tone="neutral" icon={false}>{c.opd_visits} outpatient</Chip>
-                <Chip tone="neutral" icon={false}>{c.inpatient_visits} inpatient</Chip>
-                <Chip tone="neutral" icon={false}>{c.emergency_visits} emergency</Chip>
+              <div className="flex" style={{ flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}>
+                <div className="flex" style={{ flexWrap: "wrap" }}>
+                  <Chip tone="neutral" icon={false}>{h.visit_count} visits</Chip>
+                  <Chip tone="neutral" icon={false}>{h.patient_count ?? h.active_patients ?? 0} patients</Chip>
+                  <Chip tone="neutral" icon={false}>{h.opd_visits || 0} outpatient</Chip>
+                  <Chip tone="neutral" icon={false}>{h.inpatient_visits || 0} inpatient</Chip>
+                  <Chip tone="neutral" icon={false}>{h.emergency_visits || 0} emergency</Chip>
+                  <Chip tone="neutral" icon={false}>{docsAtHospital.length} doctors</Chip>
+                </div>
+                <Link className="btn btn--secondary btn--sm" href={`/dashboard?hospital=${h.hospital_id}#hospital-patients`}>
+                  View synced patients
+                </Link>
               </div>
               <DataTable
                 caption={`Doctors at ${h.hospital_name}`}
-                rows={doctors.filter((d) => d.hospital_id === h.hospital_id)}
+                rows={docsAtHospital}
                 rowKey={(d) => d.doctor_id}
                 columns={[
                   { header: "Doctor", cell: (d) => d.full_name },

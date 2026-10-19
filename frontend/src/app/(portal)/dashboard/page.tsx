@@ -1,6 +1,7 @@
 import { ChevronRight, ShieldCheck, Stethoscope, UserPlus } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
+import { MaskedId } from "@/components/MaskedId";
 import { Timeline } from "@/components/Timeline";
 import {
   ActionChip,
@@ -17,21 +18,22 @@ import {
 import { attentionFor } from "@/lib/attention";
 import { ageOn, formatDate, formatDateTime, GENDER_LABEL, maskId } from "@/lib/format";
 import { assessLab } from "@/lib/lab-ranges";
+import { api } from "@/lib/api";
 import { requireSession } from "@/lib/session";
 import * as store from "@/lib/store";
 import type { Session } from "@/lib/types";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
-type Search = Promise<{ attention?: string; patient?: string }>;
+type Search = Promise<{ attention?: string; patient?: string; hospital?: string }>;
 
 export default async function DashboardPage({ searchParams }: { searchParams: Search }) {
   const session = await requireSession();
-  const { attention, patient } = await searchParams;
+  const { attention, patient, hospital } = await searchParams;
   const showAll = attention === "all";
   if (session.role === "patient") return <PatientDashboard session={session} showAll={showAll} />;
   if (session.role === "doctor") return <DoctorDashboard session={session} showAll={showAll} selected={patient} />;
-  return <AdminDashboard session={session} showAll={showAll} />;
+  return <AdminDashboard session={session} showAll={showAll} selectedHospital={hospital} />;
 }
 
 // ---------------------------------------------------------------- patient
@@ -382,12 +384,64 @@ function DoctorDashboard({ session, showAll, selected }: { session: Session; sho
 
 // ------------------------------------------------------------------ admin
 
-function AdminDashboard({ session, showAll }: { session: Session; showAll: boolean }) {
-  const totals = store.totals();
-  const caseload = store.caseload();
-  const exceptions = store.allAudit().filter((a) => a.action === "DENIED" || a.action === "EMERGENCY_READ");
-  const emergencyVisits = caseload.reduce((n, c) => n + c.emergency_visits, 0);
-  const maxVisits = Math.max(...caseload.map((c) => c.visit_count), 1);
+async function AdminDashboard({
+  session,
+  showAll,
+  selectedHospital,
+}: {
+  session: Session;
+  showAll: boolean;
+  selectedHospital?: string;
+}) {
+  let totals = {
+    patients: 0,
+    hospitals: 0,
+    doctors: 0,
+    visits: 0,
+    activeConsents: 0,
+    auditEntries: 0,
+    duplicateCount: 0,
+  };
+  let caseload: any[] = [];
+  let auditLogs: any[] = [];
+  let consentDistribution: any[] = [];
+  let consentsList: any[] = [];
+
+  try {
+    const [statsData, caseloadData, logsData, distData, consentsData] = await Promise.all([
+      api.getStats(),
+      api.getHospitalCaseload(),
+      api.getAuditLogs(undefined, undefined, 50),
+      api.getConsentDistribution(50),
+      api.getConsents(undefined, undefined, undefined, 200),
+    ]);
+    totals = statsData;
+    caseload = caseloadData;
+    auditLogs = logsData;
+    consentDistribution = distData;
+    consentsList = consentsData;
+  } catch (err) {
+    console.warn("Falling back to local store for admin dashboard:", err);
+    totals = store.totals() as any;
+    caseload = store.caseload() as any;
+    auditLogs = store.allAudit() as any;
+    consentsList = store.allConsents() as any;
+  }
+
+  const exceptions = auditLogs.filter((a) => a.action === "DENIED" || a.action === "EMERGENCY_READ");
+  const emergencyVisits = caseload.reduce((n, c) => n + (c.emergency_visits || 0), 0);
+  const maxVisits = Math.max(...caseload.map((c) => c.visit_count || 0), 1);
+
+  const currentHospitalId = selectedHospital || caseload[0]?.hospital_id;
+  let hospitalPatients: any[] = [];
+  if (currentHospitalId) {
+    try {
+      hospitalPatients = await api.getHospitalPatients(currentHospitalId, 25);
+    } catch (e) {
+      console.warn("Failed to fetch hospital patients:", e);
+    }
+  }
+  const currentHospital = caseload.find((c) => c.hospital_id === currentHospitalId);
 
   return (
     <div className="page">
@@ -402,7 +456,11 @@ function AdminDashboard({ session, showAll }: { session: Session; showAll: boole
         }
       />
 
-      <AttentionSummary items={attentionFor(session)} showAll={showAll} viewAllHref="/dashboard?attention=all#attention" />
+      <AttentionSummary
+        items={attentionFor(session, auditLogs, consentsList)}
+        showAll={showAll}
+        viewAllHref="/dashboard?attention=all#attention"
+      />
 
       <div className="grid grid--kpi">
         <Kpi label="Hospitals" value={totals.hospitals} hint={`${totals.doctors} doctors on duty`} />
@@ -416,25 +474,53 @@ function AdminDashboard({ session, showAll }: { session: Session; showAll: boole
         <section className="card card-host pane" aria-labelledby="load-title">
           <div className="card-head">
             <h2 id="load-title">Hospital caseload</h2>
+            <span className="muted" style={{ fontSize: "var(--fs-xs)" }}>
+              Select facility to view synced patient roster
+            </span>
           </div>
           <div className="stack">
-            {caseload.map((c) => (
-              <div className="bar-row" key={c.hospital_id}>
-                <div className="list-row">
-                  <strong className="truncate" title={c.hospital_name}>
-                    {c.hospital_name}
-                  </strong>
-                  <span className="muted nowrap" style={{ fontSize: "var(--fs-sm)", whiteSpace: "nowrap" }}>
-                    {c.visit_count} visits · {c.patient_count} patients
-                  </span>
+            {caseload.map((c) => {
+              const isSelected = c.hospital_id === currentHospitalId;
+              return (
+                <div
+                  className="bar-row"
+                  key={c.hospital_id}
+                  style={
+                    isSelected
+                      ? {
+                          outline: "2px solid var(--blue-500)",
+                          background: "var(--card-hover, rgba(255,255,255,0.03))",
+                          borderRadius: 8,
+                          padding: "6px 10px",
+                        }
+                      : { padding: "4px 0" }
+                  }
+                >
+                  <div className="list-row">
+                    <Link
+                      href={`/dashboard?hospital=${c.hospital_id}#hospital-patients`}
+                      style={{ textDecoration: "none", color: "inherit", flex: 1 }}
+                    >
+                      <strong className="truncate" title={c.hospital_name}>
+                        {c.hospital_name} {isSelected ? "•" : ""}
+                      </strong>
+                    </Link>
+                    <span className="muted nowrap" style={{ fontSize: "var(--fs-sm)", whiteSpace: "nowrap" }}>
+                      {c.visit_count} visits · {c.patient_count ?? c.active_patients ?? 0} patients
+                    </span>
+                  </div>
+                  <div
+                    className="bar"
+                    role="img"
+                    aria-label={`${c.opd_visits || 0} outpatient, ${c.emergency_visits || 0} emergency, ${c.inpatient_visits || 0} inpatient visits`}
+                  >
+                    <span style={{ width: `${((c.opd_visits || 0) / maxVisits) * 100}%` }} />
+                    <span style={{ width: `${((c.emergency_visits || 0) / maxVisits) * 100}%` }} />
+                    <span style={{ width: `${((c.inpatient_visits || 0) / maxVisits) * 100}%` }} />
+                  </div>
                 </div>
-                <div className="bar" role="img" aria-label={`${c.opd_visits} outpatient, ${c.emergency_visits} emergency, ${c.inpatient_visits} inpatient visits`}>
-                  <span style={{ width: `${(c.opd_visits / maxVisits) * 100}%` }} />
-                  <span style={{ width: `${(c.emergency_visits / maxVisits) * 100}%` }} />
-                  <span style={{ width: `${(c.inpatient_visits / maxVisits) * 100}%` }} />
-                </div>
-              </div>
-            ))}
+              );
+            })}
             <div className="legend">
               <span>
                 <i style={{ background: "var(--blue-300)" }} />
@@ -450,6 +536,123 @@ function AdminDashboard({ session, showAll }: { session: Session; showAll: boole
               </span>
             </div>
           </div>
+        </section>
+
+        {currentHospital && (
+          <section className="card card-host pane" id="hospital-patients" aria-labelledby="hosp-patients-title">
+            <div className="card-head">
+              <div>
+                <h2 id="hosp-patients-title">Patients at {currentHospital.hospital_name}</h2>
+                <p className="muted" style={{ fontSize: "var(--fs-xs)", margin: 0 }}>
+                  Live synchronized roster of patients with clinical records at this facility.
+                </p>
+              </div>
+              <Link className="btn btn--secondary btn--sm" href="/hospitals">
+                All facilities
+              </Link>
+            </div>
+            {hospitalPatients.length === 0 ? (
+              <Empty>No patients recorded at this hospital.</Empty>
+            ) : (
+              <DataTable
+                caption={`Patient roster for ${currentHospital.hospital_name}`}
+                rows={hospitalPatients}
+                rowKey={(p) => p.patient_id}
+                columns={[
+                  {
+                    header: "Patient",
+                    cell: (p) => (
+                      <span className="stack-sm" style={{ gap: 0 }}>
+                        <Link href={`/patients?q=${encodeURIComponent(p.patient_id)}`}>
+                          <strong>{p.full_name}</strong>
+                        </Link>
+                        <span className="muted" style={{ fontSize: "var(--fs-xs)" }}>
+                          <MaskedId id={p.patient_id} />
+                        </span>
+                      </span>
+                    ),
+                  },
+                  { header: "Blood / Sex", cell: (p) => `${p.blood_group || "—"} · ${p.gender}` },
+                  { header: "Visits at facility", cell: (p) => `${p.visit_count} visits` },
+                  { header: "Last visit", cell: (p) => (p.last_visit ? formatDateTime(p.last_visit) : "—"), nowrap: true },
+                ]}
+              />
+            )}
+          </section>
+        )}
+
+        <section className="card card-host pane" aria-labelledby="consent-dist-title" style={{ gridColumn: "1 / -1" }}>
+          <div className="card-head">
+            <div>
+              <h2 id="consent-dist-title">Patient consents across hospitals</h2>
+              <p className="muted" style={{ fontSize: "var(--fs-xs)", margin: 0 }}>
+                Live visibility into which hospitals each patient has authorized to access their medical records.
+              </p>
+            </div>
+            <Link className="btn btn--secondary btn--sm" href="/audit?action=CONSENT_CHANGE">
+              Consent audit log
+            </Link>
+          </div>
+          {consentDistribution.length === 0 ? (
+            <Empty>No consent records found.</Empty>
+          ) : (
+            <DataTable
+              caption="Cross-hospital patient consent mapping"
+              rows={consentDistribution.slice(0, 20)}
+              rowKey={(p) => p.patient_id}
+              columns={[
+                {
+                  header: "Patient",
+                  cell: (p) => (
+                    <span className="stack-sm" style={{ gap: 0 }}>
+                      <Link href={`/patients?q=${encodeURIComponent(p.patient_id)}`}>
+                        <strong>{p.full_name}</strong>
+                      </Link>
+                      <span className="muted" style={{ fontSize: "var(--fs-xs)" }}>
+                        <MaskedId id={p.patient_id} />
+                      </span>
+                    </span>
+                  ),
+                },
+                {
+                  header: "Authorized hospitals",
+                  cell: (p) => (
+                    <div className="flex" style={{ flexWrap: "wrap", gap: 4 }}>
+                      {p.consented_hospitals && p.consented_hospitals.length > 0 ? (
+                        p.consented_hospitals.map((h: string) => (
+                          <Chip key={h} tone="neutral" icon={false}>
+                            {h}
+                          </Chip>
+                        ))
+                      ) : (
+                        <span className="muted">None</span>
+                      )}
+                    </div>
+                  ),
+                },
+                {
+                  header: "Named doctors",
+                  cell: (p) =>
+                    p.consented_doctors && p.consented_doctors.length > 0 ? (
+                      <span className="muted" style={{ fontSize: "var(--fs-xs)" }}>
+                        {p.consented_doctors.join(", ")}
+                      </span>
+                    ) : (
+                      <span className="muted">—</span>
+                    ),
+                },
+                {
+                  header: "Active consents",
+                  cell: (p) => <Chip>{p.active_consents} active</Chip>,
+                },
+                {
+                  header: "Valid until",
+                  cell: (p) => (p.latest_expiry ? formatDate(p.latest_expiry) : "Ongoing"),
+                  nowrap: true,
+                },
+              ]}
+            />
+          )}
         </section>
 
         <section className="card card-host pane" aria-labelledby="exc-title">

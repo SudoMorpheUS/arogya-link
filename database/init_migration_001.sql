@@ -86,3 +86,77 @@ CREATE TABLE audit_log (
   action_time TIMESTAMP   NOT NULL DEFAULT NOW(),
   details     TEXT
 );
+
+
+-- Stored Procedures
+CREATE OR REPLACE FUNCTION sp_grant_consent(
+  p_patient_id VARCHAR, p_hospital_id VARCHAR, p_doctor_id VARCHAR,
+  p_start_date DATE, p_end_date DATE
+) RETURNS INTEGER
+LANGUAGE plpgsql AS $$
+DECLARE new_id INTEGER;
+BEGIN
+  IF p_hospital_id IS NULL AND p_doctor_id IS NULL THEN
+    RAISE EXCEPTION 'Consent must name a hospital or a doctor';
+  END IF;
+  INSERT INTO consent (patient_id, hospital_id, doctor_id, start_date, end_date, status)
+  VALUES (p_patient_id, p_hospital_id, p_doctor_id, p_start_date, p_end_date, 'Active')
+  RETURNING consent_id INTO new_id;
+  RETURN new_id;
+END;
+$$;
+
+-- Stored Function for Consent Check
+CREATE OR REPLACE FUNCTION fn_has_consent(
+  p_patient_id VARCHAR, p_doctor_id VARCHAR
+) RETURNS BOOLEAN
+LANGUAGE SQL STABLE AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM consent c
+    JOIN doctor d ON d.doctor_id = p_doctor_id
+    WHERE c.patient_id = p_patient_id
+      AND c.status = 'Active'
+      AND c.start_date <= CURRENT_DATE
+      AND (c.end_date IS NULL OR c.end_date >= CURRENT_DATE)
+      AND (c.doctor_id = p_doctor_id OR c.hospital_id = d.hospital_id)
+  );
+$$;
+
+-- Audit Trigger on Visit Insert
+CREATE OR REPLACE FUNCTION trg_visit_audit() RETURNS TRIGGER
+LANGUAGE plpgsql AS $$
+BEGIN
+  INSERT INTO audit_log (patient_id, doctor_id, action, details)
+  VALUES (
+    NEW.patient_id, NEW.doctor_id, 'INSERT',
+    format('visit_id=%s type=%s hospital=%s', NEW.visit_id, NEW.visit_type, NEW.hospital_id)
+  );
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS tr_visit_audit ON visit;
+CREATE TRIGGER tr_visit_audit
+AFTER INSERT ON visit
+FOR EACH ROW EXECUTE FUNCTION trg_visit_audit();
+
+-- Cross-Hospital Duplicate Lab Test Detection View
+CREATE OR REPLACE VIEW v_duplicate_lab_tests AS
+SELECT 
+    lt1.lab_test_id AS initial_test_id,
+    lt1.test_name,
+    lt1.test_date AS initial_date,
+    v1.patient_id,
+    v1.hospital_id AS initial_hospital_id,
+    lt2.lab_test_id AS duplicate_test_id,
+    lt2.test_date AS duplicate_date,
+    v2.hospital_id AS duplicate_hospital_id,
+    (lt2.test_date - lt1.test_date) AS days_between
+FROM lab_test lt1
+JOIN visit v1 ON lt1.visit_id = v1.visit_id
+JOIN lab_test lt2 ON lt1.test_name = lt2.test_name AND lt1.lab_test_id < lt2.lab_test_id
+JOIN visit v2 ON lt2.visit_id = v2.visit_id AND v1.patient_id = v2.patient_id
+WHERE v1.hospital_id <> v2.hospital_id
+  AND lt2.test_date >= lt1.test_date
+  AND lt2.test_date - lt1.test_date <= 90;

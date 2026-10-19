@@ -1,6 +1,6 @@
 # AarogyaLink — Multi-Hospital Health Data Sharing Platform
 ## Digital Assignment 02 — Database Management Systems
-**Team:** Archit (25BRS1030) · Mudit (25BRS1094) · Mayank (25BRS1154)
+**Developer:** Archit (25BRS1030)
 
 This file lists every SQL query used in the assignment, separated by section, with no output/explanation clutter — ready to paste into a query tool and run top to bottom.
 

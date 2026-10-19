@@ -1,0 +1,299 @@
+/**
+ * AarogyaLink — FastAPI Backend Client
+ * 
+ * Provides strongly-typed HTTP calls from Next.js (Option B) to the FastAPI backend service.
+ * In Docker: connects via http://backend:8000
+ * Locally: connects via http://localhost:8000
+ */
+
+const getBackendUrl = (): string => {
+  if (process.env.BACKEND_API_URL) return process.env.BACKEND_API_URL;
+  if (typeof window === "undefined") {
+    // Server-side
+    return process.env.NODE_ENV === "production" ? "http://backend:8000" : "http://localhost:8000";
+  }
+  // Client-side (if called from browser)
+  return "http://localhost:8000";
+};
+
+async function apiRequest<T>(
+  endpoint: string,
+  options: RequestInit = {},
+): Promise<T> {
+  const base = getBackendUrl();
+  const url = `${base}${endpoint.startsWith("/") ? "" : "/"}${endpoint}`;
+  const headers = {
+    "Content-Type": "application/json",
+    ...(options.headers || {}),
+  };
+
+  const res = await fetch(url, {
+    ...options,
+    headers,
+    cache: "no-store", // Always fetch fresh data from PostgreSQL
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text().catch(() => res.statusText);
+    throw new Error(`FastAPI Error (${res.status}): ${errorText}`);
+  }
+
+  return res.json() as Promise<T>;
+}
+
+// ---------------------------------------------------------------------------
+// Types matching FastAPI schemas
+// ---------------------------------------------------------------------------
+
+export interface ApiHospital {
+  hospital_id: string;
+  hospital_name: string;
+  address: string;
+  contact_number: string;
+  registration_no: string;
+  doctor_count?: number;
+  visit_count?: number;
+  active_patients?: number;
+}
+
+export interface ApiHospitalCaseload extends ApiHospital {
+  doctor_count: number;
+  visit_count: number;
+  patient_count: number;
+  opd_visits: number;
+  emergency_visits: number;
+  inpatient_visits: number;
+}
+
+export interface ApiDoctor {
+  doctor_id: string;
+  hospital_id: string;
+  hospital_name?: string;
+  full_name: string;
+  specialization: string;
+  license_number: string;
+}
+
+export interface ApiPatient {
+  patient_id: string;
+  full_name: string;
+  date_of_birth: string;
+  gender: "M" | "F" | "O";
+  blood_group: string | null;
+  contact_number: string;
+  email: string | null;
+}
+
+export interface ApiConsent {
+  consent_id: number;
+  patient_id: string;
+  patient_name?: string;
+  hospital_id: string | null;
+  hospital_name?: string | null;
+  doctor_id: string | null;
+  doctor_name?: string | null;
+  start_date: string;
+  end_date: string | null;
+  status: "Active" | "Revoked";
+}
+
+export interface ApiConsentDistribution {
+  patient_id: string;
+  full_name: string;
+  contact_number: string;
+  total_consents: number;
+  active_consents: number;
+  consented_hospitals: string[];
+  consented_doctors: string[];
+  latest_expiry: string | null;
+}
+
+export interface ApiHospitalPatient {
+  patient_id: string;
+  full_name: string;
+  gender: string;
+  blood_group: string | null;
+  contact_number: string;
+  visit_count: number;
+  last_visit: string | null;
+}
+
+export interface ApiTimelineEntry {
+  visit_id: number;
+  visit_date: string;
+  visit_type: "OPD" | "Emergency" | "Inpatient";
+  chief_complaint: string | null;
+  doctor: {
+    doctor_id: string;
+    full_name: string;
+    specialization: string;
+  };
+  hospital: {
+    hospital_id: string;
+    hospital_name: string;
+    address: string;
+  };
+  diagnoses: {
+    diagnosis_id: number;
+    disease_code: string;
+    description: string;
+    diagnosed_date: string;
+  }[];
+  prescriptions: {
+    prescription_id: number;
+    medicine_name: string;
+    dosage: string;
+    frequency: string;
+    duration: string;
+  }[];
+  lab_tests: {
+    lab_test_id: number;
+    test_name: string;
+    result: string | null;
+    unit: string | null;
+    test_date: string;
+  }[];
+}
+
+export interface ApiDuplicateLab {
+  initial_test_id: number;
+  test_name: string;
+  initial_date: string;
+  patient_id: string;
+  patient_name: string;
+  initial_hospital_id: string;
+  initial_hospital_name: string;
+  duplicate_test_id: number;
+  duplicate_date: string;
+  duplicate_hospital_id: string;
+  duplicate_hospital_name: string;
+  days_between: number;
+}
+
+export interface ApiAuditEntry {
+  log_id: number;
+  patient_id: string;
+  patient_name: string;
+  doctor_id: string | null;
+  doctor_name: string;
+  action: string;
+  action_time: string;
+  details: string;
+}
+
+export interface ApiStats {
+  patients: number;
+  hospitals: number;
+  doctors: number;
+  visits: number;
+  activeConsents: number;
+  auditEntries: number;
+  duplicateCount: number;
+}
+
+// ---------------------------------------------------------------------------
+// API Methods
+// ---------------------------------------------------------------------------
+
+export const api = {
+  // Stats
+  getStats: () => apiRequest<ApiStats>("/api/stats"),
+
+  // Hospitals
+  getHospitals: () => apiRequest<ApiHospital[]>("/api/hospitals"),
+  getHospitalCaseload: () => apiRequest<ApiHospitalCaseload[]>("/api/hospitals/caseload"),
+  getHospital: (id: string) => apiRequest<ApiHospital>(`/api/hospitals/${id}`),
+  getHospitalPatients: (hospitalId: string, limit = 50) =>
+    apiRequest<ApiHospitalPatient[]>(`/api/hospitals/${hospitalId}/patients?limit=${limit}`),
+
+  // Doctors
+  getDoctors: (hospitalId?: string) =>
+    apiRequest<ApiDoctor[]>(`/api/doctors${hospitalId ? `?hospital_id=${hospitalId}` : ""}`),
+  getDoctor: (id: string) => apiRequest<ApiDoctor>(`/api/doctors/${id}`),
+  createDoctor: (data: Partial<ApiDoctor>) =>
+    apiRequest<ApiDoctor>("/api/doctors", { method: "POST", body: JSON.stringify(data) }),
+
+  // Patients
+  getPatients: (query = "", limit = 100) =>
+    apiRequest<ApiPatient[]>(`/api/patients?q=${encodeURIComponent(query)}&limit=${limit}`),
+  getPatient: (id: string) => apiRequest<ApiPatient>(`/api/patients/${id}`),
+  registerPatient: (data: Partial<ApiPatient>) =>
+    apiRequest<ApiPatient>("/api/patients", { method: "POST", body: JSON.stringify(data) }),
+  getTimeline: (patientId: string) =>
+    apiRequest<ApiTimelineEntry[]>(`/api/patients/${patientId}/timeline`),
+  getActivePrescriptions: (patientId: string) =>
+    apiRequest<any[]>(`/api/patients/${patientId}/prescriptions/active`),
+  getPatientLabs: (patientId: string) =>
+    apiRequest<any[]>(`/api/patients/${patientId}/labs`),
+
+  // Visits
+  createVisit: (data: any) =>
+    apiRequest<any>("/api/visits", { method: "POST", body: JSON.stringify(data) }),
+  getVisits: (patientId?: string, doctorId?: string) => {
+    const params = new URLSearchParams();
+    if (patientId) params.append("patient_id", patientId);
+    if (doctorId) params.append("doctor_id", doctorId);
+    return apiRequest<any[]>(`/api/visits?${params.toString()}`);
+  },
+
+  // Consents
+  getConsents: (patientId?: string, doctorId?: string, hospitalId?: string, limit = 100) => {
+    const params = new URLSearchParams();
+    if (patientId) params.append("patient_id", patientId);
+    if (doctorId) params.append("doctor_id", doctorId);
+    if (hospitalId) params.append("hospital_id", hospitalId);
+    params.append("limit", String(limit));
+    return apiRequest<ApiConsent[]>(`/api/consents?${params.toString()}`);
+  },
+  getConsentDistribution: (limit = 100) =>
+    apiRequest<ApiConsentDistribution[]>(`/api/consents/distribution?limit=${limit}`),
+  grantConsent: (data: {
+    patient_id: string;
+    hospital_id?: string | null;
+    doctor_id?: string | null;
+    start_date?: string;
+    end_date?: string | null;
+  }) => apiRequest<{ consent_id: number; status: string }>("/api/consents", {
+    method: "POST",
+    body: JSON.stringify(data),
+  }),
+  revokeConsent: (consentId: number) =>
+    apiRequest<any>(`/api/consents/${consentId}/revoke`, { method: "POST" }),
+  checkConsent: (patientId: string, doctorId: string) =>
+    apiRequest<{ patient_id: string; doctor_id: string; has_consent: boolean }>(
+      `/api/consents/check?patient_id=${patientId}&doctor_id=${doctorId}`
+    ),
+
+  // Audit & Emergency
+  getAuditLogs: (patientId?: string, doctorId?: string, limit = 100) => {
+    const params = new URLSearchParams();
+    if (patientId) params.append("patient_id", patientId);
+    if (doctorId) params.append("doctor_id", doctorId);
+    params.append("limit", String(limit));
+    return apiRequest<ApiAuditEntry[]>(`/api/audit?${params.toString()}`);
+  },
+  recordBreakGlass: (patientId: string, doctorId: string, reason: string) =>
+    apiRequest<any>("/api/audit/break-glass", {
+      method: "POST",
+      body: JSON.stringify({ patient_id: patientId, doctor_id: doctorId, reason }),
+    }),
+  checkEmergencyAccess: (patientId: string, doctorId: string) =>
+    apiRequest<{ patient_id: string; doctor_id: string; has_emergency_access: boolean }>(
+      `/api/audit/emergency-check?patient_id=${patientId}&doctor_id=${doctorId}`
+    ),
+
+  // Duplicates
+  getDuplicates: (limit = 100) =>
+    apiRequest<ApiDuplicateLab[]>(`/api/duplicates?limit=${limit}`),
+
+  // Auth & Admin
+  lookupUser: (email: string) =>
+    apiRequest<{ role: "patient" | "doctor" | "admin"; id: string | null; name: string; email: string }>(
+      `/api/auth/lookup?email=${encodeURIComponent(email)}`
+    ),
+  registerAdmin: (email: string, name: string) =>
+    apiRequest<any>("/api/auth/register-admin", {
+      method: "POST",
+      body: JSON.stringify({ email, name }),
+    }),
+};

@@ -6,6 +6,7 @@ import { RegisterPatientForm } from "@/components/RegisterPatientForm";
 import { Chip, DataTable, Empty, PageHeader } from "@/components/ui";
 import { ageOn, maskPhone } from "@/lib/format";
 import { requireSession } from "@/lib/session";
+import { api, type ApiPatient } from "@/lib/api";
 import * as store from "@/lib/store";
 
 export const metadata: Metadata = { title: "Patients" };
@@ -17,7 +18,20 @@ export default async function PatientsPage({
 }) {
   const session = await requireSession(["doctor", "admin"]);
   const { q = "", register, action } = await searchParams;
-  const rows = store.listPatients(q);
+  let rows: (ApiPatient | import("@/lib/types").Patient)[] = [];
+  let consentDist: any[] = [];
+  try {
+    const [patientsData, distData] = await Promise.all([
+      api.getPatients(q, 100),
+      session.role === "admin" ? api.getConsentDistribution(200) : Promise.resolve([]),
+    ]);
+    rows = patientsData;
+    consentDist = distData;
+  } catch (err) {
+    console.warn("Falling back to local store for patients:", err);
+    rows = store.listPatients(q);
+  }
+  const consentMap = new Map(consentDist.map((d) => [d.patient_id, d]));
   const today = store.today();
   const isDoctor = session.role === "doctor";
   const isRegistering = Boolean(register || action === "register");
@@ -92,7 +106,31 @@ export default async function PatientsPage({
                     },
                   },
                 ]
-              : []),
+              : [
+                  {
+                    header: "Consented hospitals",
+                    cell: (p: (typeof rows)[number]) => {
+                      const dist = consentMap.get(p.patient_id);
+                      if (!dist || !dist.consented_hospitals || dist.consented_hospitals.length === 0) {
+                        return <span className="muted" style={{ fontSize: "var(--fs-xs)" }}>None</span>;
+                      }
+                      return (
+                        <div className="flex" style={{ flexWrap: "wrap", gap: 4 }}>
+                          {dist.consented_hospitals.slice(0, 2).map((h: string) => (
+                            <Chip key={h} tone="neutral" icon={false}>
+                              {h}
+                            </Chip>
+                          ))}
+                          {dist.consented_hospitals.length > 2 ? (
+                            <span className="muted" style={{ fontSize: "var(--fs-xs)" }}>
+                              +{dist.consented_hospitals.length - 2} more
+                            </span>
+                          ) : null}
+                        </div>
+                      );
+                    },
+                  },
+                ]),
           ]}
         />
       )}

@@ -5,6 +5,7 @@ import { GrantConsentForm } from "@/components/GrantConsentForm";
 import { Chip, DataTable, Empty, PageHeader, VisibilityNote } from "@/components/ui";
 import { daysBetween, formatDate } from "@/lib/format";
 import { requireSession } from "@/lib/session";
+import { api } from "@/lib/api";
 import * as store from "@/lib/store";
 
 export const metadata: Metadata = { title: "Consent" };
@@ -12,17 +13,44 @@ export const metadata: Metadata = { title: "Consent" };
 export default async function ConsentsPage() {
   const session = await requireSession(["patient"]);
   const today = store.today();
-  const rows = store.consentsOf(session.id!);
+  let rows: any[] = [];
+  let hospitalsList: any[] = [];
+  let doctorsList: any[] = [];
+
+  try {
+    const [consentsData, hospData, docData] = await Promise.all([
+      api.getConsents(session.id!),
+      api.getHospitals(),
+      api.getDoctors(),
+    ]);
+    rows = consentsData;
+    hospitalsList = hospData;
+    doctorsList = docData;
+  } catch (err) {
+    console.warn("Falling back to local store for consents:", err);
+    rows = store.consentsOf(session.id!);
+    hospitalsList = store.listHospitals() as any[];
+    doctorsList = store.listDoctors() as any[];
+  }
+
   const active = rows.filter((c) => c.status === "Active" && c.start_date <= today && (!c.end_date || c.end_date >= today));
 
-  const hospitals = store.listHospitals().map((h) => ({ value: `hospital:${h.hospital_id}`, label: h.hospital_name }));
-  const doctors = store.listDoctors().map((d) => ({
+  const hospitalMap = new Map(hospitalsList.map((h) => [h.hospital_id, h.hospital_name]));
+  const doctorMap = new Map(doctorsList.map((d) => [d.doctor_id, d]));
+
+  const hospitals = hospitalsList.map((h) => ({ value: `hospital:${h.hospital_id}`, label: h.hospital_name }));
+  const doctors = doctorsList.map((d) => ({
     value: `doctor:${d.doctor_id}`,
-    label: `${d.full_name}, ${store.getHospital(d.hospital_id)?.hospital_name}`,
+    label: `${d.full_name}, ${hospitalMap.get(d.hospital_id) || d.hospital_id}`,
   }));
 
-  const nameOf = (c: (typeof rows)[number]) =>
-    c.doctor_id ? `${store.getDoctor(c.doctor_id)?.full_name} (doctor)` : `${store.getHospital(c.hospital_id!)?.hospital_name} (hospital)`;
+  const nameOf = (c: any) => {
+    if (c.doctor_name) return `${c.doctor_name} (doctor)`;
+    if (c.doctor_id && doctorMap.has(c.doctor_id)) return `${doctorMap.get(c.doctor_id)!.full_name} (doctor)`;
+    if (c.hospital_name) return `${c.hospital_name} (hospital)`;
+    if (c.hospital_id && hospitalMap.has(c.hospital_id)) return `${hospitalMap.get(c.hospital_id)} (hospital)`;
+    return c.doctor_id ? `${c.doctor_id} (doctor)` : `${c.hospital_id} (hospital)`;
+  };
 
   return (
     <div className="page">

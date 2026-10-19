@@ -42,23 +42,23 @@ export async function getSession(): Promise<Session | null> {
     };
   }
 
-  if (role === "doctor" && id && getDoctor(id)) {
-    const doc = getDoctor(id)!;
+  if (role === "doctor" && id) {
+    const doc = getDoctor(id);
     return {
       role: "doctor",
       id,
-      email: email || doc.email || null,
-      displayName: displayName || doc.full_name,
+      email: email || doc?.email || null,
+      displayName: displayName || doc?.full_name || id,
     };
   }
 
-  if (role === "patient" && id && getPatient(id)) {
-    const pat = getPatient(id)!;
+  if (role === "patient" && id) {
+    const pat = getPatient(id);
     return {
       role: "patient",
       id,
-      email: email || pat.email || null,
-      displayName: displayName || pat.full_name,
+      email: email || pat?.email || null,
+      displayName: displayName || pat?.full_name || id,
     };
   }
 

@@ -2,7 +2,7 @@
 
 > **Federated, Consent-Driven Multi-Hospital Health Data Sharing Platform**  
 > *Database Management Systems (DBMS) — Digital Assignment 02*  
-> **Team:** Archit (25BRS1030) · Mudit (25BRS1094) · Mayank (25BRS1154)
+> **Developer:** Archit (25BRS1030)
 
 ---
 

@@ -4,14 +4,30 @@ import { DataTable, Empty, PageHeader } from "@/components/ui";
 import { MaskedId } from "@/components/MaskedId";
 import { formatDate } from "@/lib/format";
 import { requireSession } from "@/lib/session";
+import { api } from "@/lib/api";
 import * as store from "@/lib/store";
 
 export const metadata: Metadata = { title: "Duplicate tests" };
 
 export default async function DuplicatesPage() {
-  const session = await requireSession(["doctor"]);
-  // Only patients who have allowed this doctor or hospital are shown.
-  const rows = store.duplicateLabs().filter((d) => store.accessLevel(d.patient_id, session.id!) !== "none");
+  const session = await requireSession(["doctor", "admin"]);
+  let rows: any[] = [];
+  try {
+    const raw = await api.getDuplicates(100);
+    rows = raw.map((d) => ({
+      ...d,
+      times_run: 2,
+      first_date: d.initial_date,
+      last_date: d.duplicate_date,
+      hospitals: [d.initial_hospital_name, d.duplicate_hospital_name],
+    }));
+  } catch (err) {
+    console.warn("Falling back to local store for duplicates:", err);
+    rows = store.duplicateLabs();
+  }
+  if (session.role === "doctor") {
+    rows = rows.filter((d) => store.accessLevel(d.patient_id, session.id!) !== "none");
+  }
 
   return (
     <div className="page">
