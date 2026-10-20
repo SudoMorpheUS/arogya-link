@@ -296,7 +296,7 @@ export async function recordVisitAction(_prev: FormState, formData: FormData): P
 }
 
 export async function registerPatientAction(_prev: FormState, formData: FormData): Promise<FormState> {
-  await requireSession(["doctor", "admin"]);
+  const session = await requireSession(["doctor", "admin"]);
   try {
     const emailVal = text(formData, "email");
     let id: string;
@@ -324,11 +324,41 @@ export async function registerPatientAction(_prev: FormState, formData: FormData
       });
     }
 
+    // If registered by a doctor at a hospital/clinic, automatically create initial intake consent
+    let initialConsentMsg = "";
+    if (session.role === "doctor" && session.id) {
+      try {
+        let hospId = "HSP1001";
+        let hospName = "your hospital";
+        const doc = await api.getDoctor(session.id);
+        if (doc) {
+          hospId = doc.hospital_id || hospId;
+          hospName = doc.hospital_name || hospName;
+        }
+        await api.grantConsent({
+          patient_id: id,
+          hospital_id: hospId,
+          doctor_id: session.id,
+          start_date: new Date().toISOString().split("T")[0],
+        });
+        initialConsentMsg = ` Initial intake consent active for ${hospName}. You can now open their chart.`;
+      } catch (cErr) {
+        console.warn("FastAPI grantConsent on register error:", cErr);
+      }
+    }
+
     revalidatePath("/patients");
+    revalidatePath("/dashboard");
+    revalidatePath("/hospitals");
+
     const loginDetails = emailVal
       ? ` Login email: ${emailVal} (Temporary password: ArogyaLink@2026, or patient can set a custom password via Create Account).`
       : "";
-    return { ok: `Registered ${id}.${loginDetails} Ask the patient to grant consent before opening their chart.` };
+    const consentPrompt = initialConsentMsg
+      ? initialConsentMsg
+      : " Ask the patient to grant consent before opening their chart.";
+
+    return { ok: `Registered ${id}.${loginDetails}${consentPrompt}` };
   } catch (e) {
     return { error: (e as Error).message };
   }

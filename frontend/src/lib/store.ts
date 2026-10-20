@@ -128,8 +128,7 @@ function auditOnce(patient_id: string, doctor_id: string, action: string, detail
 // ---------- lookups ----------
 
 export const getPatient = (id: string) => {
-  const norm = id === "PAT-IN-105002" ? "PAT-IN-1002" : id;
-  let p = db().patients.find((p) => p.patient_id === id || p.patient_id === norm);
+  let p = db().patients.find((p) => p.patient_id === id);
   if (!p && id && (id.startsWith("PAT") || id.startsWith("pat"))) {
     p = {
       patient_id: id,
@@ -246,11 +245,10 @@ export function hasConsent(patientId: string, doctorId: string): boolean {
   const doctor = getDoctor(doctorId);
   if (!doctor) return false;
   const now = today();
-  const patNorm = patientId === "PAT-IN-105002" ? "PAT-IN-1002" : patientId;
   const docNorm = doctorId === "DOC-1079" ? "DOC-01" : doctorId;
   return db().consents.some(
     (c) =>
-      (c.patient_id === patientId || c.patient_id === patNorm) &&
+      c.patient_id === patientId &&
       c.status === "Active" &&
       c.start_date <= now &&
       (c.end_date === null || c.end_date >= now) &&

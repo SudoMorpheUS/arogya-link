@@ -20,13 +20,18 @@ export default async function PatientsPage({
   const { q = "", register, action, view } = await searchParams;
   let rows: (ApiPatient | import("@/lib/types").Patient)[] = [];
   let consentDist: any[] = [];
+  let totalPatientCount: number | null = null;
   try {
-    const [patientsData, distData] = await Promise.all([
+    const [patientsData, distData, statsData] = await Promise.all([
       api.getPatients(q, 100),
       session.role === "admin" ? api.getConsentDistribution(200) : Promise.resolve([]),
+      api.getStats().catch(() => null),
     ]);
     rows = patientsData;
     consentDist = distData;
+    if (statsData && typeof statsData.patients === "number") {
+      totalPatientCount = statsData.patients;
+    }
   } catch (err) {
     console.warn("Falling back to local store for patients:", err);
     rows = store.listPatients(q);
@@ -88,13 +93,13 @@ export default async function PatientsPage({
             href={`/patients?${new URLSearchParams({ ...(q ? { q } : {}), view: "allowed" }).toString()}`}
             className={`btn btn--sm ${currentView === "allowed" ? "" : "btn--secondary"}`}
           >
-            Allowed Consent ({allowedRows.length})
+            Allowed Consent ({!q.trim() && accessiblePatients.size > 0 ? accessiblePatients.size : allowedRows.length})
           </Link>
           <Link
             href={`/patients?${new URLSearchParams({ ...(q ? { q } : {}), view: "all" }).toString()}`}
             className={`btn btn--sm ${currentView === "all" ? "" : "btn--secondary"}`}
           >
-            All Patients ({rows.length})
+            All Patients ({!q.trim() && totalPatientCount ? totalPatientCount.toLocaleString() : rows.length})
           </Link>
         </div>
       )}

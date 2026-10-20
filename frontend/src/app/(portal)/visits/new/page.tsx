@@ -12,8 +12,8 @@ export const metadata: Metadata = { title: "Record visit" };
 export default async function NewVisitPage({ searchParams }: { searchParams: Promise<{ patient?: string }> }) {
   const session = await requireSession(["doctor"]);
   const { patient: patientId } = await searchParams;
-  let patient = patientId ? store.getPatient(patientId) : null;
-  if (!patient && patientId) {
+  let patient: any = null;
+  if (patientId) {
     try {
       const p = await api.getPatient(patientId);
       if (p) {
@@ -27,7 +27,12 @@ export default async function NewVisitPage({ searchParams }: { searchParams: Pro
           email: p.email,
         };
       }
-    } catch {}
+    } catch (err) {
+      console.warn("api.getPatient failed, falling back to local store:", err);
+    }
+    if (!patient) {
+      patient = store.getPatient(patientId);
+    }
   }
   if (!patient) notFound();
 

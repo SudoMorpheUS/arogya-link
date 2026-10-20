@@ -23,22 +23,25 @@ export default async function ChartPage({
   const session = await requireSession(["doctor"]);
   const { id } = await params;
   const { saved, error } = await searchParams;
-  let patient = store.getPatient(id);
+  let patient: any = null;
+  try {
+    const p = await api.getPatient(id);
+    if (p) {
+      patient = {
+        patient_id: p.patient_id,
+        full_name: p.full_name,
+        date_of_birth: p.date_of_birth,
+        gender: p.gender as any,
+        blood_group: p.blood_group as any,
+        contact_number: p.contact_number,
+        email: p.email,
+      };
+    }
+  } catch (err) {
+    console.warn("api.getPatient failed, falling back to local store:", err);
+  }
   if (!patient) {
-    try {
-      const p = await api.getPatient(id);
-      if (p) {
-        patient = {
-          patient_id: p.patient_id,
-          full_name: p.full_name,
-          date_of_birth: p.date_of_birth,
-          gender: p.gender as any,
-          blood_group: p.blood_group as any,
-          contact_number: p.contact_number,
-          email: p.email,
-        };
-      }
-    } catch {}
+    patient = store.getPatient(id);
   }
   if (!patient) notFound();
 
@@ -113,7 +116,7 @@ export default async function ChartPage({
             <MaskedId id={patient.patient_id} />
           </span>
           <span>
-            <b>{ageOn(patient.date_of_birth, today)}</b> yrs · {GENDER_LABEL[patient.gender]}
+            <b>{ageOn(patient.date_of_birth, today)}</b> yrs · {GENDER_LABEL[patient.gender as keyof typeof GENDER_LABEL] ?? patient.gender}
           </span>
           <span>
             Blood group <b>{patient.blood_group ?? "—"}</b>

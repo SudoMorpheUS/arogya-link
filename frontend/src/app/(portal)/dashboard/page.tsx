@@ -40,22 +40,23 @@ export default async function DashboardPage({ searchParams }: { searchParams: Se
 
 async function PatientDashboard({ session, showAll }: { session: Session; showAll: boolean }) {
   const id = session.id!;
-  let patient = store.getPatient(id);
+  let patient: any = null;
+  try {
+    const p = await api.getPatient(id);
+    if (p) {
+      patient = {
+        patient_id: p.patient_id,
+        full_name: p.full_name,
+        date_of_birth: p.date_of_birth,
+        gender: p.gender as any,
+        blood_group: p.blood_group as any,
+        contact_number: p.contact_number,
+        email: p.email,
+      };
+    }
+  } catch {}
   if (!patient) {
-    try {
-      const p = await api.getPatient(id);
-      if (p) {
-        patient = {
-          patient_id: p.patient_id,
-          full_name: p.full_name,
-          date_of_birth: p.date_of_birth,
-          gender: p.gender as any,
-          blood_group: p.blood_group as any,
-          contact_number: p.contact_number,
-          email: p.email,
-        };
-      }
-    } catch {}
+    patient = store.getPatient(id);
   }
   if (!patient) {
     patient = {
@@ -253,7 +254,7 @@ async function PatientDashboard({ session, showAll }: { session: Session; showAl
               <strong className="wrap">{patient.full_name}</strong>
               <div className="facts">
                 <span>
-                  <b>{ageOn(patient.date_of_birth, today)}</b> yrs · {GENDER_LABEL[patient.gender] ?? patient.gender}
+                  <b>{ageOn(patient.date_of_birth, today)}</b> yrs · {GENDER_LABEL[patient.gender as keyof typeof GENDER_LABEL] ?? patient.gender}
                 </span>
                 <span>
                   Blood group <b>{patient.blood_group ?? "—"}</b>
@@ -362,22 +363,23 @@ async function DoctorDashboard({ session, showAll, selected }: { session: Sessio
 
   let target = selected ? queue.find((p) => p.patient_id === selected) : undefined;
   if (!target && selected) {
-    let p = store.getPatient(selected);
+    let p: any = null;
+    try {
+      const apiP = await api.getPatient(selected);
+      if (apiP) {
+        p = {
+          patient_id: apiP.patient_id,
+          full_name: apiP.full_name,
+          date_of_birth: apiP.date_of_birth,
+          gender: apiP.gender as any,
+          blood_group: apiP.blood_group as any,
+          contact_number: apiP.contact_number,
+          email: apiP.email,
+        };
+      }
+    } catch {}
     if (!p) {
-      try {
-        const apiP = await api.getPatient(selected);
-        if (apiP) {
-          p = {
-            patient_id: apiP.patient_id,
-            full_name: apiP.full_name,
-            date_of_birth: apiP.date_of_birth,
-            gender: apiP.gender as any,
-            blood_group: apiP.blood_group as any,
-            contact_number: apiP.contact_number,
-            email: apiP.email,
-          };
-        }
-      } catch {}
+      p = store.getPatient(selected);
     }
     if (p) {
       target = { ...p, last_visit: null };
